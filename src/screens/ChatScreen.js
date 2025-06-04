@@ -18,7 +18,7 @@ import {
 } from 'react-native';
 
 // Configuración de Gemini AI
-const GEMINI_API_KEY = 'AIzaSyDt7xInKNqzTfeMYDtN91Kpm9I7NWuQyog';
+const GEMINI_API_KEY = 'AIzaSyAv9ReoM5Bd0OjXdAsB-lhJzKgiTNUE_Hw';
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent';
 const GEMINI_VISION_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-vision:generateContent';
 
