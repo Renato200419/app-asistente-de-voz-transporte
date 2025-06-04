@@ -11,16 +11,27 @@
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
-    },
-    "ios": {
-      "supportsTablet": true
-    },
-    "android": {
+    },    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Esta aplicación necesita acceso a la cámara para tomar fotos y analizarlas.",
+        "NSPhotoLibraryUsageDescription": "Esta aplicación necesita acceso a la galería para seleccionar imágenes y analizarlas.",
+        "NSMicrophoneUsageDescription": "Esta aplicación necesita acceso al micrófono para reconocimiento de voz.",
+        "NSSpeechRecognitionUsageDescription": "Esta aplicación necesita acceso al reconocimiento de voz para convertir tu habla en texto."
+      }
+    },"android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "CAMERA", 
+        "WRITE_EXTERNAL_STORAGE", 
+        "READ_EXTERNAL_STORAGE",
+        "RECORD_AUDIO",
+        "MODIFY_AUDIO_SETTINGS"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"

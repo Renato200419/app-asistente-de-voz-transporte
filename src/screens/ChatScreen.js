@@ -3,14 +3,16 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Speech from 'expo-speech';
 import * as ImagePicker from 'expo-image-picker';
 import { useEffect, useState } from 'react';
-import { 
-  ScrollView, 
-  StyleSheet, 
-  Text, 
-  TextInput, 
-  TouchableOpacity, 
-  View, 
-  KeyboardAvoidingView, 
+import Voice from '@react-native-voice/voice';
+import { PermissionsAndroid } from 'react-native';
+import {
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+  KeyboardAvoidingView,
   Platform,
   Alert,
   Image,
@@ -19,8 +21,8 @@ import {
 
 // Configuración de Gemini AI
 const GEMINI_API_KEY = 'AIzaSyAv9ReoM5Bd0OjXdAsB-lhJzKgiTNUE_Hw';
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent';
-const GEMINI_VISION_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-vision:generateContent';
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+const GEMINI_VISION_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
 
 const ChatScreen = ({ navigation }) => {
   const [messages, setMessages] = useState([]);
@@ -35,11 +37,97 @@ const ChatScreen = ({ navigation }) => {
     detailLevel: 'medium',
     extraTime: 5
   });
+  const [voiceError, setVoiceError] = useState(null);
 
   useEffect(() => {
     loadUserConfig();
     initializeChat();
+    setupVoiceRecognition();
+    return () => {
+      Voice.destroy().then(() => Voice.removeAllListeners());
+    };
   }, []);
+
+  const setupVoiceRecognition = () => {
+    Voice.onSpeechStart = onSpeechStart;
+    Voice.onSpeechEnd = onSpeechEnd;
+    Voice.onSpeechError = onSpeechError;
+    Voice.onSpeechResults = onSpeechResults;
+    Voice.onSpeechPartialResults = onSpeechPartialResults;
+  };
+
+  const onSpeechStart = (e) => {
+    console.log('onSpeechStart', e);
+    setIsListening(true);
+  };
+
+  const onSpeechEnd = (e) => {
+    console.log('onSpeechEnd', e);
+    setIsListening(false);
+  };
+
+  const onSpeechError = (e) => {
+    console.log('onSpeechError', e);
+    setVoiceError(e.error?.message || 'Error de voz');
+    setIsListening(false);
+  };
+
+  const onSpeechResults = (e) => {
+    console.log('onSpeechResults', e);
+    if (e.value?.length) setInputText(e.value[0]);
+  };
+
+  const onSpeechPartialResults = (e) => {
+    console.log('onSpeechPartialResults', e);
+    if (e.value?.length) setInputText(e.value[0]);
+  };
+
+  const startVoiceRecognition = async () => {
+    try {
+      console.log('Solicitando permiso de micrófono...');
+      if (Platform.OS === 'android') {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+          {
+            title: 'Permiso de micrófono',
+            message: 'La aplicación necesita acceder al micrófono para reconocimiento de voz.'
+          }
+        );
+        if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+          console.log('Permiso de micrófono denegado');
+          setVoiceError('Permiso de micrófono denegado');
+          return;
+        }
+      }
+      console.log('Iniciando reconocimiento de voz');
+      setVoiceError(null);
+      await Voice.start('es-ES');
+    } catch (e) {
+      console.log('Error startVoiceRecognition', e);
+      setVoiceError(e.message);
+    }
+  };
+
+  const stopVoiceRecognition = async () => {
+    try {
+      console.log('Deteniendo reconocimiento de voz');
+      await Voice.stop();
+    } catch (e) {
+      console.log('Error stopVoiceRecognition', e);
+    }
+  };
+
+  // Simulación de voz: muestra animación y luego inserta texto predeterminado
+  const simulateVoiceInput = () => {
+    const fakeText = "¿Puedes ayudarme con información sobre rutas y horarios de transporte?";
+    // Mostrar indicador de escucha
+    setIsListening(true);
+    // Tras 1.5s, insertar texto y ocultar indicador
+    setTimeout(() => {
+      setInputText(fakeText);
+      setIsListening(false);
+    }, 1500);
+  };
 
   const loadUserConfig = async () => {
     try {
@@ -69,7 +157,6 @@ const ChatScreen = ({ navigation }) => {
       Speech.speak(welcomeMessage.text, { language: 'es' });
     }
   };
-
   // Función para llamar a Gemini AI
   const callGeminiAI = async (message, imageBase64 = null) => {
     try {
@@ -89,7 +176,6 @@ const ChatScreen = ({ navigation }) => {
       
       Siempre responde en español y de manera empática.`;
 
-      let apiUrl = GEMINI_API_URL;
       let requestBody = {
         contents: [{
           parts: [{
@@ -98,15 +184,14 @@ const ChatScreen = ({ navigation }) => {
         }],
         generationConfig: {
           temperature: 0.7,
-          topK: 1,
-          topP: 1,
+          topK: 40,
+          topP: 0.95,
           maxOutputTokens: 1024,
         }
       };
 
-      // Si hay imagen, usar el modelo de visión
+      // Si hay imagen, agregar al mismo modelo
       if (imageBase64) {
-        apiUrl = GEMINI_VISION_API_URL;
         requestBody.contents[0].parts = [
           {
             text: `${systemPrompt}\n\nAnaliza esta imagen del transporte público y responde: ${message}`
@@ -120,7 +205,7 @@ const ChatScreen = ({ navigation }) => {
         ];
       }
 
-      const response = await fetch(`${apiUrl}?key=${GEMINI_API_KEY}`, {
+      const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -129,6 +214,8 @@ const ChatScreen = ({ navigation }) => {
       });
 
       if (!response.ok) {
+        const errorData = await response.text();
+        console.error('API Error Details:', errorData);
         throw new Error(`Error ${response.status}: ${response.statusText}`);
       }
 
@@ -137,6 +224,7 @@ const ChatScreen = ({ navigation }) => {
       if (data.candidates && data.candidates[0]?.content?.parts[0]?.text) {
         return data.candidates[0].content.parts[0].text;
       } else {
+        console.error('Unexpected API response:', data);
         throw new Error('Respuesta inesperada de la API');
       }
       
@@ -151,9 +239,7 @@ Aquí está la información básica que puedo proporcionarte:
 📍 Rutas principales: Línea 1 del Metro, Metropolitano, Buses urbanos
 ⏰ Horarios: Metro (6:00-23:00), Buses (5:30-23:30)
 ♿ Accesibilidad: Estaciones con ascensores y rampas disponibles
-💰 Tarifas: Metro S/1.50, Bus S/1.00, Metropolitano S/2.50
-
-¿Necesitas información específica sobre algún tema?`;
+💰 Tarifas: Metro S/1.50, Bus S/1.00, Metropolitano S/2.50`;
     }
   };
 
@@ -199,69 +285,71 @@ Aquí está la información básica que puedo proporcionarte:
         setIsLoading(false);
       }
     }
-  };
-
-  const takePhoto = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    
-    if (status !== 'granted') {
-      Alert.alert('Permisos', 'Necesitamos permisos de cámara para esta función');
-      return;
-    }
-
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [4, 3],
-      quality: 0.7,
-      base64: true
-    });
-
-    if (!result.canceled) {
-      const imageMessage = {
-        id: Date.now(),
-        text: "📷 Foto tomada para analizar",
-        image: result.assets[0].uri,
-        isBot: false,
-        timestamp: new Date()
-      };
+  };  const takePhoto = async () => {
+    try {
+      // Verificar permisos de cámara
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
       
-      setMessages(prev => [...prev, imageMessage]);
-      setIsLoading(true);
+      if (status !== 'granted') {
+        Alert.alert('Permisos requeridos', 'Necesitamos permisos de cámara para esta función. Por favor, ve a configuración y habilita el acceso a la cámara.');
+        return;
+      }      // Lanzar la cámara
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.7,
+        base64: true
+      });
 
-      try {
-        const analysis = await callGeminiAI(
-          "Analiza esta imagen y proporciona información relevante sobre accesibilidad, señalización, rutas o cualquier aspecto importante para personas con discapacidad en el transporte público.",
-          result.assets[0].base64
-        );
-
-        const botResponse = {
-          id: Date.now() + 1,
-          text: analysis,
-          isBot: true,
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const imageMessage = {
+          id: Date.now(),
+          text: "📷 Foto tomada para analizar",
+          image: result.assets[0].uri,
+          isBot: false,
           timestamp: new Date()
         };
         
-        setMessages(prev => [...prev, botResponse]);
+        setMessages(prev => [...prev, imageMessage]);
+        setIsLoading(true);
 
-        if (userType === 'visual' && preferences.voiceAlerts) {
-          Speech.speak(analysis, { language: 'es' });
+        try {
+          const analysis = await callGeminiAI(
+            "Analiza esta imagen y proporciona información relevante sobre accesibilidad, señalización, rutas o cualquier aspecto importante para personas con discapacidad en el transporte público.",
+            result.assets[0].base64
+          );
+
+          const botResponse = {
+            id: Date.now() + 1,
+            text: analysis,
+            isBot: true,
+            timestamp: new Date()
+          };
+          
+          setMessages(prev => [...prev, botResponse]);
+
+          if (userType === 'visual' && preferences.voiceAlerts) {
+            Speech.speak(analysis, { language: 'es' });
+          }
+        } catch (error) {
+          console.error('Error analizando imagen:', error);
+          const errorResponse = {
+            id: Date.now() + 1,
+            text: "Lo siento, no pude analizar la imagen. Por favor, intenta de nuevo o describe lo que necesitas saber.",
+            isBot: true,
+            timestamp: new Date()
+          };
+          setMessages(prev => [...prev, errorResponse]);
+        } finally {
+          setIsLoading(false);
         }
-      } catch (error) {
-        console.error('Error analizando imagen:', error);
-        const errorResponse = {
-          id: Date.now() + 1,
-          text: "Lo siento, no pude analizar la imagen. Por favor, intenta de nuevo o describe lo que necesitas saber.",
-          isBot: true,
-          timestamp: new Date()
-        };
-        setMessages(prev => [...prev, errorResponse]);
-      } finally {
-        setIsLoading(false);
       }
+    } catch (error) {
+      console.error('Error abriendo cámara:', error);
+      Alert.alert('Error', 'No se pudo abrir la cámara. Asegúrate de que tienes una cámara disponible y permisos habilitados.');
     }
   };
-
   const selectFromGallery = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -314,24 +402,19 @@ Aquí está la información básica que puedo proporcionarte:
         setIsLoading(false);
       }
     }
-  };
-
-  const simulateVoiceInput = () => {
+  };  const startVoiceInput = () => {
     setIsListening(true);
     
+    // Simular el proceso de escucha
     setTimeout(() => {
-      const exampleQueries = [
-        "¿Cuáles son las rutas accesibles para sillas de ruedas?",
-        "¿Hay ascensores funcionando en la Estación Central?",
-        "¿Cuál es el horario del Metro hoy?",
-        "Necesito ir al aeropuerto, ¿qué ruta me recomiendas?",
-        "¿Hay descuentos para personas con discapacidad?"
-      ];
-      
-      const randomQuery = exampleQueries[Math.floor(Math.random() * exampleQueries.length)];
-      setInputText(randomQuery);
       setIsListening(false);
-    }, 2000);
+      promptForVoiceInput();
+    }, 1500);
+    
+    // Dar feedback de voz
+    if (userType === 'visual' && preferences.voiceAlerts) {
+      Speech.speak("Selecciona una opción del menú que aparecerá", { language: 'es' });
+    }
   };
 
   const getMessageStyle = () => {
@@ -478,8 +561,7 @@ Aquí está la información básica que puedo proporcionarte:
             color="white" 
           />
         </TouchableOpacity>
-        
-        <TouchableOpacity 
+          <TouchableOpacity 
           style={[
             styles.voiceButton,
             isListening && styles.listeningButton,
@@ -487,11 +569,11 @@ Aquí está la información básica que puedo proporcionarte:
           ]}
           onPress={simulateVoiceInput}
           disabled={isLoading}
-          accessibilityLabel="Botón de voz"
-          accessibilityHint="Toca para hablar tu consulta"
+          accessibilityLabel={isListening ? "Detener grabación de voz" : "Iniciar grabación de voz"}
+          accessibilityHint={isListening ? "Toca para detener la grabación de voz" : "Toca para iniciar la grabación de voz"}
         >
           <Ionicons 
-            name={isListening ? "radio-button-on" : "mic"} 
+            name={isListening ? "stop" : "mic"} 
             size={userType === 'elderly' ? 28 : 24} 
             color="white" 
           />
@@ -515,7 +597,6 @@ Aquí está la información básica que puedo proporcionarte:
           />
         </TouchableOpacity>
       </View>
-
       {isListening && (
         <View style={[
           styles.listeningIndicator,
@@ -525,10 +606,17 @@ Aquí está la información básica que puedo proporcionarte:
             styles.listeningText,
             userType === 'elderly' && styles.largeListeningText
           ]}>
-            🎤 Escuchando...
+            🎤 Procesando...
+          </Text>
+          <Text style={[
+            styles.listeningSubtext,
+            userType === 'elderly' && styles.largeListeningText
+          ]}>
+            Preparando opciones de voz
           </Text>
         </View>
       )}
+      {voiceError ? <Text style={{color:'red', marginTop: 4}}>{voiceError}</Text> : null}
     </KeyboardAvoidingView>
   );
 };
@@ -738,10 +826,14 @@ const styles = StyleSheet.create({
   largeListeningIndicator: {
     padding: 20,
     borderRadius: 15,
-  },
-  listeningText: {
+  },  listeningText: {
     color: 'white',
     fontSize: 16,
+  },
+  listeningSubtext: {
+    color: '#ccc',
+    fontSize: 14,
+    marginTop: 5,
   },
   largeListeningText: {
     fontSize: 20,
