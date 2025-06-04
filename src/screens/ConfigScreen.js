@@ -5,6 +5,7 @@ import { Alert, StyleSheet, Text, TouchableOpacity, View, ScrollView } from 'rea
 
 const ConfigScreen = ({ navigation }) => {
   const [selectedType, setSelectedType] = useState(null);
+  const [currentUserType, setCurrentUserType] = useState(null);
   const [preferences, setPreferences] = useState({
     voiceAlerts: true,
     hapticFeedback: false,
@@ -23,6 +24,7 @@ const ConfigScreen = ({ navigation }) => {
       if (config) {
         const parsed = JSON.parse(config);
         setSelectedType(parsed.type);
+        setCurrentUserType(parsed.type);
         setPreferences(parsed.preferences || preferences);
       }
     } catch (error) {
@@ -79,103 +81,217 @@ const ConfigScreen = ({ navigation }) => {
       icon: 'business'
     }
   ];
+  const getContainerStyle = () => {
+    const baseStyle = styles.container;
+    if (currentUserType === 'visual') {
+      return [baseStyle, styles.darkTheme];
+    }
+    return baseStyle;
+  };
+
+  const getTextStyle = () => {
+    if (currentUserType === 'visual') {
+      return [styles.whiteText];
+    } else if (currentUserType === 'elderly') {
+      return [styles.largeText];
+    }
+    return {};
+  };
+
+  const getIconSize = () => {
+    return currentUserType === 'elderly' ? 28 : 24;
+  };
+
+  const getCardStyle = (typeId) => {
+    const baseStyle = [
+      styles.userTypeCard,
+      selectedType === typeId && styles.selectedCard
+    ];
+    
+    if (currentUserType === 'visual') {
+      baseStyle.push(styles.darkCard);
+      if (selectedType === typeId) {
+        baseStyle.push(styles.selectedDarkCard);
+      }
+    } else if (currentUserType === 'elderly') {
+      baseStyle.push(styles.largeCard);
+    }
+    
+    return baseStyle;
+  };
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
+    <View style={getContainerStyle()}>
+      <View style={[styles.header, currentUserType === 'visual' && styles.darkHeader]}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={24} color="#333" />
+          <Ionicons 
+            name="arrow-back" 
+            size={getIconSize()} 
+            color={currentUserType === 'visual' ? '#fff' : '#333'} 
+          />
         </TouchableOpacity>
-        <Text style={styles.title}>Configuración de Accesibilidad</Text>
+        <Text style={[
+          styles.title, 
+          getTextStyle(),
+          currentUserType === 'elderly' && styles.largeTitle
+        ]}>
+          Configuración de Accesibilidad
+        </Text>
       </View>
-
+      
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Tipo de Usuario</Text>
-          <Text style={styles.sectionDescription}>
+          <Text style={[
+            styles.sectionTitle,
+            getTextStyle(),
+            currentUserType === 'elderly' && styles.largeSectionTitle
+          ]}>
+            Tipo de Usuario
+          </Text>
+          <Text style={[
+            styles.sectionDescription,
+            getTextStyle(),
+            currentUserType === 'elderly' && styles.largeSectionDescription
+          ]}>
             Selecciona tu perfil para personalizar la experiencia
           </Text>
 
           {userTypes.map(type => (
             <TouchableOpacity
               key={type.id}
-              style={[
-                styles.userTypeCard,
-                selectedType === type.id && styles.selectedCard
-              ]}
+              style={getCardStyle(type.id)}
               onPress={() => setSelectedType(type.id)}
+              accessibilityLabel={`Seleccionar ${type.title}`}
+              accessibilityHint={type.description}
             >
               <View style={styles.cardHeader}>
                 <Ionicons 
                   name={type.icon} 
-                  size={24} 
-                  color={selectedType === type.id ? '#4caf50' : '#666'} 
+                  size={getIconSize()} 
+                  color={selectedType === type.id ? '#4caf50' : (currentUserType === 'visual' ? '#fff' : '#666')} 
                 />
                 <Text style={[
                   styles.cardTitle,
-                  selectedType === type.id && styles.selectedText
+                  selectedType === type.id && styles.selectedText,
+                  getTextStyle(),
+                  currentUserType === 'elderly' && styles.largeCardTitle
                 ]}>
                   {type.title}
                 </Text>
                 {selectedType === type.id && (
-                  <Ionicons name="checkmark-circle" size={24} color="#4caf50" />
+                  <Ionicons name="checkmark-circle" size={getIconSize()} color="#4caf50" />
                 )}
               </View>
-              <Text style={styles.cardDescription}>{type.description}</Text>
+              <Text style={[
+                styles.cardDescription,
+                getTextStyle(),
+                currentUserType === 'elderly' && styles.largeCardDescription
+              ]}>
+                {type.description}
+              </Text>
             </TouchableOpacity>
           ))}
         </View>
-
+        
         {selectedType && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Preferencias de Alerta</Text>
+            <Text style={[
+              styles.sectionTitle,
+              getTextStyle(),
+              currentUserType === 'elderly' && styles.largeSectionTitle
+            ]}>
+              Preferencias de Alerta
+            </Text>
             
             <TouchableOpacity 
-              style={styles.preferenceItem}
+              style={[
+                styles.preferenceItem,
+                currentUserType === 'visual' && styles.darkPreferenceItem,
+                currentUserType === 'elderly' && styles.largePreferenceItem
+              ]}
               onPress={() => setPreferences({...preferences, voiceAlerts: !preferences.voiceAlerts})}
+              accessibilityLabel="Alertas por voz"
+              accessibilityHint={`${preferences.voiceAlerts ? 'Activado' : 'Desactivado'}. Toca para cambiar`}
             >
-              <Text style={styles.preferenceText}>Alertas por Voz</Text>
+              <Text style={[
+                styles.preferenceText,
+                getTextStyle(),
+                currentUserType === 'elderly' && styles.largePreferenceText
+              ]}>
+                Alertas por Voz
+              </Text>
               <Ionicons 
                 name={preferences.voiceAlerts ? "toggle" : "toggle-outline"} 
-                size={24} 
+                size={getIconSize()} 
                 color={preferences.voiceAlerts ? "#4caf50" : "#ccc"} 
               />
             </TouchableOpacity>
 
             <TouchableOpacity 
-              style={styles.preferenceItem}
+              style={[
+                styles.preferenceItem,
+                currentUserType === 'visual' && styles.darkPreferenceItem,
+                currentUserType === 'elderly' && styles.largePreferenceItem
+              ]}
               onPress={() => setPreferences({...preferences, hapticFeedback: !preferences.hapticFeedback})}
+              accessibilityLabel="Retroalimentación háptica"
+              accessibilityHint={`${preferences.hapticFeedback ? 'Activado' : 'Desactivado'}. Toca para cambiar`}
             >
-              <Text style={styles.preferenceText}>Retroalimentación Háptica</Text>
+              <Text style={[
+                styles.preferenceText,
+                getTextStyle(),
+                currentUserType === 'elderly' && styles.largePreferenceText
+              ]}>
+                Retroalimentación Háptica
+              </Text>
               <Ionicons 
                 name={preferences.hapticFeedback ? "toggle" : "toggle-outline"} 
-                size={24} 
+                size={getIconSize()} 
                 color={preferences.hapticFeedback ? "#4caf50" : "#ccc"} 
               />
             </TouchableOpacity>
 
             <TouchableOpacity 
-              style={styles.preferenceItem}
+              style={[
+                styles.preferenceItem,
+                currentUserType === 'visual' && styles.darkPreferenceItem,
+                currentUserType === 'elderly' && styles.largePreferenceItem
+              ]}
               onPress={() => setPreferences({...preferences, visualNotifications: !preferences.visualNotifications})}
+              accessibilityLabel="Notificaciones visuales"
+              accessibilityHint={`${preferences.visualNotifications ? 'Activado' : 'Desactivado'}. Toca para cambiar`}
             >
-              <Text style={styles.preferenceText}>Notificaciones Visuales</Text>
-              <Ionicons 
+              <Text style={[
+                styles.preferenceText,
+                getTextStyle(),
+                currentUserType === 'elderly' && styles.largePreferenceText              ]}>
+                Notificaciones Visuales
+              </Text>
+              <Ionicons
                 name={preferences.visualNotifications ? "toggle" : "toggle-outline"} 
-                size={24} 
+                size={getIconSize()} 
                 color={preferences.visualNotifications ? "#4caf50" : "#ccc"} 
               />
             </TouchableOpacity>
           </View>
         )}
-
-        <TouchableOpacity 
+        
+        <TouchableOpacity
           style={[
             styles.saveButton, 
-            !selectedType && styles.disabledButton
+            !selectedType && styles.disabledButton,
+            currentUserType === 'elderly' && styles.largeSaveButton
           ]}
           onPress={saveConfig}
+          accessibilityLabel="Guardar configuración"
+          accessibilityHint="Toca para guardar los cambios realizados"
         >
-          <Text style={styles.saveButtonText}>Guardar Configuración</Text>
+          <Text style={[
+            styles.saveButtonText,
+            currentUserType === 'elderly' && styles.largeSaveButtonText
+          ]}>
+            Guardar Configuración
+          </Text>
         </TouchableOpacity>
 
         {/* Espacio adicional al final */}
@@ -191,11 +307,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f5f5',
     paddingTop: 50,
   },
+  darkTheme: {
+    backgroundColor: '#121212',
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingBottom: 20,
+  },
+  darkHeader: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#444',
   },
   scrollView: {
     flex: 1,
@@ -207,6 +330,15 @@ const styles = StyleSheet.create({
     marginLeft: 15,
     color: '#333',
   },
+  largeTitle: {
+    fontSize: 24,
+  },
+  whiteText: {
+    color: '#fff',
+  },
+  largeText: {
+    fontSize: 18,
+  },
   section: {
     marginBottom: 30,
   },
@@ -216,10 +348,17 @@ const styles = StyleSheet.create({
     color: '#333',
     marginBottom: 5,
   },
+  largeSectionTitle: {
+    fontSize: 22,
+  },
   sectionDescription: {
     fontSize: 14,
     color: '#666',
     marginBottom: 15,
+  },
+  largeSectionDescription: {
+    fontSize: 16,
+    lineHeight: 22,
   },
   userTypeCard: {
     backgroundColor: 'white',
@@ -230,9 +369,20 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: 'transparent',
   },
+  darkCard: {
+    backgroundColor: '#2d2d2d',
+  },
+  largeCard: {
+    padding: 20,
+    borderRadius: 15,
+    marginBottom: 15,
+  },
   selectedCard: {
     borderColor: '#4caf50',
     backgroundColor: '#f1f8e9',
+  },
+  selectedDarkCard: {
+    backgroundColor: '#1b5e20',
   },
   cardHeader: {
     flexDirection: 'row',
@@ -246,6 +396,9 @@ const styles = StyleSheet.create({
     flex: 1,
     color: '#333',
   },
+  largeCardTitle: {
+    fontSize: 20,
+  },
   selectedText: {
     color: '#4caf50',
   },
@@ -253,6 +406,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     marginLeft: 34,
+  },
+  largeCardDescription: {
+    fontSize: 16,
+    lineHeight: 22,
+    marginLeft: 40,
   },
   preferenceItem: {
     flexDirection: 'row',
@@ -264,9 +422,20 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     elevation: 1,
   },
+  darkPreferenceItem: {
+    backgroundColor: '#2d2d2d',
+  },
+  largePreferenceItem: {
+    padding: 20,
+    borderRadius: 15,
+    marginBottom: 15,
+  },
   preferenceText: {
     fontSize: 16,
     color: '#333',
+  },
+  largePreferenceText: {
+    fontSize: 18,
   },
   saveButton: {
     backgroundColor: '#4caf50',
@@ -276,6 +445,10 @@ const styles = StyleSheet.create({
     marginTop: 20,
     marginBottom: 20,
   },
+  largeSaveButton: {
+    padding: 25,
+    borderRadius: 15,
+  },
   disabledButton: {
     backgroundColor: '#ccc',
   },
@@ -283,6 +456,9 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  largeSaveButtonText: {
+    fontSize: 22,
   },
 });
 

@@ -5,16 +5,34 @@ import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 const HomeScreen = ({ navigation }) => {
   const [userType, setUserType] = useState(null);
-
+  const [preferences, setPreferences] = useState({
+    voiceAlerts: true,
+    hapticFeedback: false,
+    visualNotifications: true,
+    detailLevel: 'medium',
+    extraTime: 5
+  });
   useEffect(() => {
     loadUserConfig();
   }, []);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      loadUserConfig();
+    });
+
+    return unsubscribe;
+  }, [navigation]);
 
   const loadUserConfig = async () => {
     try {
       const config = await AsyncStorage.getItem('userConfig');
       if (config) {
-        setUserType(JSON.parse(config).type);
+        const parsedConfig = JSON.parse(config);
+        setUserType(parsedConfig.type);
+        if (parsedConfig.preferences) {
+          setPreferences(parsedConfig.preferences);
+        }
       }
     } catch (error) {
       console.error('Error loading config:', error);
@@ -41,33 +59,95 @@ const HomeScreen = ({ navigation }) => {
     };
     return messages[userType];
   };
+  const getContainerStyle = () => {
+    const baseStyle = styles.container;
+    if (userType === 'visual') {
+      return [baseStyle, styles.highContrastBg];
+    }
+    return baseStyle;
+  };
+  const getTextStyle = () => {
+    if (userType === 'visual') {
+      return [styles.normalText, styles.whiteText];
+    } else if (userType === 'elderly') {
+      return [styles.largeText];
+    }
+    return [styles.normalText];
+  };
 
-  const buttonStyle = userType === 'elderly' ? styles.largeButton : styles.normalButton;
-  const textStyle = userType === 'visual' ? styles.largeText : styles.normalText;
+  const getTitleStyle = () => {
+    const baseStyle = styles.title;
+    if (userType === 'visual') {
+      return [baseStyle, styles.whiteText, styles.extraLargeText];
+    } else if (userType === 'elderly') {
+      return [baseStyle, styles.extraLargeText];
+    }
+    return baseStyle;
+  };
 
+  const getButtonStyle = () => {
+    return userType === 'elderly' ? styles.largeButton : styles.normalButton;
+  };
+
+  const getIconSize = () => {
+    return userType === 'elderly' ? 40 : 30;
+  };
+
+  const getConfigButtonStyle = () => {
+    const baseStyle = styles.configButton;
+    if (userType === 'visual') {
+      return [baseStyle, styles.darkConfigButton];
+    } else if (userType === 'elderly') {
+      return [baseStyle, styles.largeConfigButton];
+    }
+    return baseStyle;
+  };
   return (
-    <View style={[styles.container, userType === 'visual' && styles.highContrastBg]}>
+    <View style={getContainerStyle()}>
       {/* Header con configuración */}
       <View style={styles.header}>
-        <Text style={[styles.title, textStyle]}>Asistente de Transporte</Text>
+        <Text style={getTitleStyle()}>Asistente de Transporte</Text>
         <TouchableOpacity 
-          style={styles.configButton}
+          style={getConfigButtonStyle()}
           onPress={() => navigation.navigate('Config')}
+          accessibilityLabel="Configuración"
+          accessibilityHint="Toca para abrir la configuración de accesibilidad"
         >
-          <Ionicons name="settings" size={24} color="#333" />
+          <Ionicons 
+            name="settings" 
+            size={userType === 'elderly' ? 28 : 24} 
+            color={userType === 'visual' ? '#fff' : '#333'} 
+          />
         </TouchableOpacity>
       </View>
 
       {/* Indicador de tipo de usuario */}
-      <View style={styles.userTypeContainer}>
-        <Text style={[styles.userTypeText, textStyle]}>
-          Perfil: {getUserTypeDisplay()}
-        </Text>
-      </View>
+      {userType && (
+        <View style={[
+          styles.userTypeContainer,
+          userType === 'visual' && styles.darkUserTypeContainer
+        ]}>
+          <Text style={[
+            styles.userTypeText, 
+            getTextStyle(),
+            userType === 'visual' && styles.whiteText
+          ]}>
+            Perfil: {getUserTypeDisplay()}
+          </Text>
+        </View>
+      )}
 
       {/* Mensaje de bienvenida */}
-      <View style={styles.welcomeContainer}>
-        <Text style={[styles.welcomeText, textStyle]}>
+      <View style={[
+        styles.welcomeContainer,
+        userType === 'visual' && styles.darkWelcomeContainer,
+        userType === 'elderly' && styles.largeWelcomeContainer
+      ]}>
+        <Text style={[
+          styles.welcomeText, 
+          getTextStyle(),
+          userType === 'visual' && styles.whiteText
+        ]}>
           {getWelcomeMessage()}
         </Text>
       </View>
@@ -75,32 +155,47 @@ const HomeScreen = ({ navigation }) => {
       {/* Botones principales */}
       <View style={styles.buttonContainer}>
         <TouchableOpacity 
-          style={[buttonStyle, styles.primaryButton]}
+          style={[getButtonStyle(), styles.primaryButton]}
           onPress={() => navigation.navigate('Chat')}
+          accessibilityLabel="Consultar por voz"
+          accessibilityHint="Toca para abrir el asistente de voz"
         >
-          <Ionicons name="chatbubble" size={userType === 'elderly' ? 40 : 30} color="white" />
-          <Text style={[styles.buttonText, textStyle]}>
+          <Ionicons name="chatbubble" size={getIconSize()} color="white" />
+          <Text style={[
+            styles.buttonText,
+            userType === 'elderly' && styles.largeButtonText
+          ]}>
             Consultar por Voz
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity 
-          style={[buttonStyle, styles.secondaryButton]}
+          style={[getButtonStyle(), styles.secondaryButton]}
           onPress={() => navigation.navigate('Navigation')}
+          accessibilityLabel="Mi viaje"
+          accessibilityHint="Toca para planificar tu viaje"
         >
-          <Ionicons name="navigate" size={userType === 'elderly' ? 40 : 30} color="white" />
-          <Text style={[styles.buttonText, textStyle]}>
+          <Ionicons name="navigate" size={getIconSize()} color="white" />
+          <Text style={[
+            styles.buttonText,
+            userType === 'elderly' && styles.largeButtonText
+          ]}>
             Mi Viaje
           </Text>
         </TouchableOpacity>
 
         {userType === 'operator' && (
           <TouchableOpacity 
-            style={[buttonStyle, styles.operatorButton]}
+            style={[getButtonStyle(), styles.operatorButton]}
             onPress={() => Alert.alert('Info', 'Panel de operador en desarrollo')}
+            accessibilityLabel="Panel de operador"
+            accessibilityHint="Toca para acceder al panel de operador"
           >
-            <Ionicons name="business" size={30} color="white" />
-            <Text style={[styles.buttonText, textStyle]}>
+            <Ionicons name="business" size={getIconSize()} color="white" />
+            <Text style={[
+              styles.buttonText,
+              userType === 'elderly' && styles.largeButtonText
+            ]}>
               Panel de Operador
             </Text>
           </TouchableOpacity>
@@ -110,14 +205,41 @@ const HomeScreen = ({ navigation }) => {
       {/* Indicadores de accesibilidad */}
       {userType && (
         <View style={styles.accessibilityIndicators}>
-          {userType === 'visual' && (
-            <Text style={styles.indicatorText}>🔊 Audio activado</Text>
+          {userType === 'visual' && preferences.voiceAlerts && (
+            <Text style={[
+              styles.indicatorText,
+              userType === 'visual' && styles.whiteIndicator,
+              userType === 'elderly' && styles.largeIndicator
+            ]}>
+              🔊 Audio activado
+            </Text>
           )}
           {userType === 'motor' && (
-            <Text style={styles.indicatorText}>♿ Rutas accesibles priorizadas</Text>
+            <Text style={[
+              styles.indicatorText,
+              userType === 'visual' && styles.whiteIndicator,
+              userType === 'elderly' && styles.largeIndicator
+            ]}>
+              ♿ Rutas accesibles priorizadas
+            </Text>
           )}
           {userType === 'elderly' && (
-            <Text style={styles.indicatorText}>⏱️ Tiempos extendidos activados</Text>
+            <Text style={[
+              styles.indicatorText,
+              userType === 'visual' && styles.whiteIndicator,
+              userType === 'elderly' && styles.largeIndicator
+            ]}>
+              ⏱️ Tiempos extendidos activados ({preferences.extraTime} min)
+            </Text>
+          )}
+          {preferences.hapticFeedback && (
+            <Text style={[
+              styles.indicatorText,
+              userType === 'visual' && styles.whiteIndicator,
+              userType === 'elderly' && styles.largeIndicator
+            ]}>
+              📳 Vibración activada
+            </Text>
           )}
         </View>
       )}
@@ -146,16 +268,32 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#333',
   },
+  extraLargeText: {
+    fontSize: 28,
+  },
+  whiteText: {
+    color: '#fff',
+  },
   configButton: {
     padding: 10,
     backgroundColor: '#e0e0e0',
     borderRadius: 20,
+  },
+  darkConfigButton: {
+    backgroundColor: '#333',
+  },
+  largeConfigButton: {
+    padding: 15,
+    borderRadius: 25,
   },
   userTypeContainer: {
     backgroundColor: '#e3f2fd',
     padding: 15,
     borderRadius: 10,
     marginBottom: 20,
+  },
+  darkUserTypeContainer: {
+    backgroundColor: '#1a237e',
   },
   userTypeText: {
     fontSize: 16,
@@ -168,6 +306,13 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginBottom: 30,
     elevation: 2,
+  },
+  darkWelcomeContainer: {
+    backgroundColor: '#1e1e1e',
+  },
+  largeWelcomeContainer: {
+    padding: 25,
+    borderRadius: 15,
   },
   welcomeText: {
     fontSize: 16,
@@ -203,8 +348,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#4caf50',
   },
   secondaryButton: {
-    backgroundColor: '#2196f3',
-  },
+    backgroundColor: '#2196f3',  },
   operatorButton: {
     backgroundColor: '#ff9800',
   },
@@ -213,6 +357,8 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     marginLeft: 15,
+  },  largeButtonText: {
+    fontSize: 22,
   },
   normalText: {
     fontSize: 16,
@@ -220,7 +366,7 @@ const styles = StyleSheet.create({
   },
   largeText: {
     fontSize: 20,
-    color: '#fff',
+    color: '#333',
     fontWeight: 'bold',
   },
   accessibilityIndicators: {
@@ -234,6 +380,13 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
     marginTop: 5,
+  },
+  whiteIndicator: {
+    color: '#ccc',
+  },
+  largeIndicator: {
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 

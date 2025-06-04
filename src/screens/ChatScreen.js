@@ -2,30 +2,48 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Speech from 'expo-speech';
 import { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { 
+  ScrollView, 
+  StyleSheet, 
+  Text, 
+  TextInput, 
+  TouchableOpacity, 
+  View, 
+  KeyboardAvoidingView, 
+  Platform 
+} from 'react-native';
 
 const ChatScreen = ({ navigation }) => {
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [userType, setUserType] = useState(null);
+  const [preferences, setPreferences] = useState({
+    voiceAlerts: true,
+    hapticFeedback: false,
+    visualNotifications: true,
+    detailLevel: 'medium',
+    extraTime: 5
+  });
 
   useEffect(() => {
     loadUserConfig();
     initializeChat();
   }, []);
-
   const loadUserConfig = async () => {
     try {
       const config = await AsyncStorage.getItem('userConfig');
       if (config) {
-        setUserType(JSON.parse(config).type);
+        const parsedConfig = JSON.parse(config);
+        setUserType(parsedConfig.type);
+        if (parsedConfig.preferences) {
+          setPreferences(parsedConfig.preferences);
+        }
       }
     } catch (error) {
       console.error('Error loading config:', error);
     }
   };
-
   const initializeChat = () => {
     const welcomeMessage = {
       id: 1,
@@ -36,7 +54,7 @@ const ChatScreen = ({ navigation }) => {
     setMessages([welcomeMessage]);
     
     // Reproducir mensaje de bienvenida para usuarios con discapacidad visual
-    if (userType === 'visual') {
+    if (userType === 'visual' && preferences.voiceAlerts) {
       Speech.speak(welcomeMessage.text, { language: 'es' });
     }
   };
@@ -124,16 +142,15 @@ const ChatScreen = ({ navigation }) => {
 
       const botResponse = {
         id: Date.now() + 1,
-        text: processMessage(inputText),
-        isBot: true,
+        text: processMessage(inputText),        isBot: true,
         timestamp: new Date()
       };
-
+      
       setMessages(prev => [...prev, userMessage, botResponse]);
       setInputText('');
 
       // Reproducir respuesta para usuarios con discapacidad visual
-      if (userType === 'visual') {
+      if (userType === 'visual' && preferences.voiceAlerts) {
         Speech.speak(botResponse.text, { language: 'es' });
       }
     }
@@ -157,46 +174,86 @@ const ChatScreen = ({ navigation }) => {
       setIsListening(false);
     }, 2000);
   };
-
   const getMessageStyle = () => {
-    return userType === 'elderly' ? styles.largeText : styles.normalText;
+    const baseStyle = userType === 'elderly' ? styles.largeText : styles.normalText;
+    if (userType === 'visual') {
+      return [baseStyle, styles.whiteText];
+    }
+    return baseStyle;
   };
 
+  const getInputContainerStyle = () => {
+    const baseStyle = styles.inputContainer;
+    if (userType === 'visual') {
+      return [baseStyle, styles.darkInputContainer];
+    }
+    return baseStyle;
+  };
+
+  const getBubbleStyle = (isBot) => {
+    const baseStyle = [
+      styles.messageBubble,
+      isBot ? styles.botMessage : styles.userMessage
+    ];
+    
+    if (userType === 'elderly') {
+      baseStyle.push(styles.largeBubble);
+    }
+    
+    if (userType === 'visual' && isBot) {
+      baseStyle.push(styles.darkBotMessage);
+    }
+    
+    return baseStyle;
+  };
   return (
-    <View style={[styles.container, userType === 'visual' && styles.darkTheme]}>
-      <View style={styles.header}>
+    <KeyboardAvoidingView 
+      style={[styles.container, userType === 'visual' && styles.darkTheme]}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 25}
+    >
+      <View style={[styles.header, userType === 'visual' && styles.darkHeader]}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Ionicons 
             name="arrow-back" 
-            size={24} 
+            size={userType === 'elderly' ? 28 : 24} 
             color={userType === 'visual' ? '#fff' : '#333'} 
           />
         </TouchableOpacity>
-        <Text style={[styles.title, userType === 'visual' && styles.whiteText]}>
+        <Text style={[
+          styles.title, 
+          userType === 'visual' && styles.whiteText,
+          userType === 'elderly' && styles.largeTitle
+        ]}>
           Asistente de Transporte
         </Text>
       </View>
 
-      <ScrollView style={styles.messagesContainer}>
+      <ScrollView 
+        style={styles.messagesContainer}
+        contentContainerStyle={styles.messagesContent}
+        showsVerticalScrollIndicator={false}
+      >
         {messages.map(message => (
           <View 
             key={message.id} 
-            style={[
-              styles.messageBubble,
-              message.isBot ? styles.botMessage : styles.userMessage
-            ]}
+            style={getBubbleStyle(message.isBot)}
           >
             <Text style={[getMessageStyle(), message.isBot && styles.botText]}>
               {message.text}
             </Text>
-            <Text style={styles.timestamp}>
+            <Text style={[
+              styles.timestamp,
+              userType === 'visual' && styles.whiteTimestamp,
+              userType === 'elderly' && styles.largeTimestamp
+            ]}>
               {message.timestamp.toLocaleTimeString()}
             </Text>
           </View>
         ))}
       </ScrollView>
 
-      <View style={styles.inputContainer}>
+      <View style={getInputContainerStyle()}>
         <TextInput
           style={[
             styles.textInput,
@@ -208,33 +265,58 @@ const ChatScreen = ({ navigation }) => {
           placeholder="Escribe tu consulta sobre transporte..."
           placeholderTextColor={userType === 'visual' ? '#ccc' : '#999'}
           multiline
+          numberOfLines={userType === 'elderly' ? 3 : 2}
+          maxLength={500}
         />
         
         <TouchableOpacity 
           style={[
             styles.voiceButton,
-            isListening && styles.listeningButton
+            isListening && styles.listeningButton,
+            userType === 'elderly' && styles.largeButton
           ]}
           onPress={simulateVoiceInput}
+          accessibilityLabel="Botón de reconocimiento de voz"
+          accessibilityHint="Toca para hablar tu consulta"
         >
           <Ionicons 
             name={isListening ? "radio-button-on" : "mic"} 
-            size={24} 
+            size={userType === 'elderly' ? 28 : 24} 
             color="white" 
           />
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.sendButton} onPress={sendMessage}>
-          <Ionicons name="send" size={24} color="white" />
+        <TouchableOpacity 
+          style={[
+            styles.sendButton,
+            userType === 'elderly' && styles.largeButton
+          ]} 
+          onPress={sendMessage}
+          accessibilityLabel="Enviar mensaje"
+          accessibilityHint="Toca para enviar tu consulta"
+        >
+          <Ionicons 
+            name="send" 
+            size={userType === 'elderly' ? 28 : 24} 
+            color="white" 
+          />
         </TouchableOpacity>
       </View>
 
       {isListening && (
-        <View style={styles.listeningIndicator}>
-          <Text style={styles.listeningText}>🎤 Escuchando...</Text>
+        <View style={[
+          styles.listeningIndicator,
+          userType === 'elderly' && styles.largeListeningIndicator
+        ]}>
+          <Text style={[
+            styles.listeningText,
+            userType === 'elderly' && styles.largeListeningText
+          ]}>
+            🎤 Escuchando...
+          </Text>
         </View>
       )}
-    </View>
+    </KeyboardAvoidingView>
   );
 };
 
@@ -254,11 +336,17 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
   },
+  darkHeader: {
+    borderBottomColor: '#444',
+  },
   title: {
     fontSize: 20,
     fontWeight: 'bold',
     marginLeft: 15,
     color: '#333',
+  },
+  largeTitle: {
+    fontSize: 24,
   },
   whiteText: {
     color: '#fff',
@@ -267,11 +355,19 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 20,
   },
+  messagesContent: {
+    paddingBottom: 20,
+  },
   messageBubble: {
     padding: 15,
     borderRadius: 15,
     marginBottom: 10,
     maxWidth: '80%',
+  },
+  largeBubble: {
+    padding: 20,
+    borderRadius: 20,
+    marginBottom: 15,
   },
   userMessage: {
     backgroundColor: '#2196f3',
@@ -281,13 +377,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#e8f5e8',
     alignSelf: 'flex-start',
   },
+  darkBotMessage: {
+    backgroundColor: '#2d2d2d',
+  },
   normalText: {
     fontSize: 16,
     color: '#333',
   },
   largeText: {
-    fontSize: 18,
+    fontSize: 20,
     color: '#333',
+    lineHeight: 26,
   },
   botText: {
     color: '#2e7d32',
@@ -297,11 +397,23 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 5,
   },
+  largeTimestamp: {
+    fontSize: 14,
+  },
+  whiteTimestamp: {
+    color: '#bbb',
+  },
   inputContainer: {
     flexDirection: 'row',
     padding: 20,
     backgroundColor: 'white',
     alignItems: 'flex-end',
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+  },
+  darkInputContainer: {
+    backgroundColor: '#1e1e1e',
+    borderTopColor: '#444',
   },
   textInput: {
     flex: 1,
@@ -313,10 +425,14 @@ const styles = StyleSheet.create({
     marginRight: 10,
     maxHeight: 100,
     fontSize: 16,
+    minHeight: 40,
   },
   largeInput: {
-    fontSize: 18,
+    fontSize: 20,
     paddingVertical: 15,
+    paddingHorizontal: 20,
+    minHeight: 50,
+    borderRadius: 25,
   },
   darkInput: {
     backgroundColor: '#333',
@@ -328,6 +444,10 @@ const styles = StyleSheet.create({
     borderRadius: 25,
     padding: 12,
     marginRight: 5,
+    minWidth: 50,
+    minHeight: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   listeningButton: {
     backgroundColor: '#f44336',
@@ -336,6 +456,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#2196f3',
     borderRadius: 25,
     padding: 12,
+    minWidth: 50,
+    minHeight: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  largeButton: {
+    padding: 16,
+    minWidth: 60,
+    minHeight: 60,
+    borderRadius: 30,
   },
   listeningIndicator: {
     position: 'absolute',
@@ -347,9 +477,17 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: 'center',
   },
+  largeListeningIndicator: {
+    padding: 20,
+    borderRadius: 15,
+  },
   listeningText: {
     color: 'white',
     fontSize: 16,
+  },
+  largeListeningText: {
+    fontSize: 20,
+    fontWeight: 'bold',
   },
 });
 
