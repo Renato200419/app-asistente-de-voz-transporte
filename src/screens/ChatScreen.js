@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Speech from 'expo-speech';
+import * as ImagePicker from 'expo-image-picker';
 import { useEffect, useState } from 'react';
 import { 
   ScrollView, 
@@ -10,13 +11,22 @@ import {
   TouchableOpacity, 
   View, 
   KeyboardAvoidingView, 
-  Platform 
+  Platform,
+  Alert,
+  Image,
+  ActivityIndicator
 } from 'react-native';
+
+// Configuración de Gemini AI
+const GEMINI_API_KEY = 'AIzaSyDt7xInKNqzTfeMYDtN91Kpm9I7NWuQyog';
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent';
+const GEMINI_VISION_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-vision:generateContent';
 
 const ChatScreen = ({ navigation }) => {
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [isListening, setIsListening] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [userType, setUserType] = useState(null);
   const [preferences, setPreferences] = useState({
     voiceAlerts: true,
@@ -30,6 +40,7 @@ const ChatScreen = ({ navigation }) => {
     loadUserConfig();
     initializeChat();
   }, []);
+
   const loadUserConfig = async () => {
     try {
       const config = await AsyncStorage.getItem('userConfig');
@@ -44,94 +55,109 @@ const ChatScreen = ({ navigation }) => {
       console.error('Error loading config:', error);
     }
   };
+
   const initializeChat = () => {
     const welcomeMessage = {
       id: 1,
-      text: "¡Hola! Soy tu asistente de transporte. Puedo ayudarte con información sobre rutas, horarios, accesibilidad y más. ¿En qué puedo ayudarte?",
+      text: "¡Hola! Soy tu asistente inteligente de transporte potenciado por IA. Puedo ayudarte con:\n\n• Información sobre rutas y horarios\n• Análisis de fotos para detectar problemas de accesibilidad\n• Navegación paso a paso\n• Reportes de problemas en tiempo real\n\n¿En qué puedo ayudarte?",
       isBot: true,
       timestamp: new Date()
     };
     setMessages([welcomeMessage]);
     
-    // Reproducir mensaje de bienvenida para usuarios con discapacidad visual
     if (userType === 'visual' && preferences.voiceAlerts) {
       Speech.speak(welcomeMessage.text, { language: 'es' });
     }
   };
 
-  const transportKnowledgeBase = {
-    // Información sobre rutas
-    'rutas': [
-      "Tenemos información sobre las principales líneas de transporte público.",
-      "Las rutas más populares incluyen la Línea 1 del Metro, buses urbanos y el Metropolitano.",
-      "¿Te interesa alguna ruta específica?"
-    ],
-    'horarios': [
-      "Los horarios del transporte público varían según la línea:",
-      "• Metro: 6:00 AM - 11:00 PM",
-      "• Buses urbanos: 5:30 AM - 11:30 PM", 
-      "• Metropolitano: 5:00 AM - 11:00 PM",
-      "¿Necesitas el horario de alguna línea específica?"
-    ],
-    'accesibilidad': [
-      "Información de accesibilidad disponible:",
-      "• Estaciones con ascensores",
-      "• Rutas con acceso para sillas de ruedas",
-      "• Buses con piso bajo",
-      "• Señalización en braille",
-      "¿Qué tipo de accesibilidad necesitas?"
-    ],
-    'precios': [
-      "Tarifas actuales del transporte público:",
-      "• Metro: S/. 1.50",
-      "• Bus urbano: S/. 1.00",
-      "• Metropolitano: S/. 2.50",
-      "• Tarjeta universitaria: 50% descuento",
-      "¿Necesitas información sobre descuentos?"
-    ],
-    'estaciones': [
-      "Información sobre estaciones principales:",
-      "• Estación Central: Acceso completo para sillas de ruedas",
-      "• Plaza Norte: Ascensores y señalización táctil",
-      "• Aeropuerto: Servicios especializados de asistencia",
-      "¿Qué estación te interesa?"
-    ]
-  };
+  // Función para llamar a Gemini AI
+  const callGeminiAI = async (message, imageBase64 = null) => {
+    try {
+      const systemPrompt = `Eres un asistente especializado en transporte público y accesibilidad para personas con discapacidades. 
+      Tu conocimiento incluye:
+      - Rutas de transporte público (Metro, buses, Metropolitano)
+      - Horarios de servicio
+      - Información de accesibilidad (ascensores, rampas, señalización)
+      - Tarifas y descuentos
+      - Asistencia para personas con discapacidad visual, movilidad reducida y adultos mayores
+      
+      Proporciona respuestas claras, concisas y útiles. Si recibes una imagen, analízala para identificar:
+      - Señalización de transporte
+      - Problemas de accesibilidad
+      - Obstáculos o barreras
+      - Información relevante para la navegación
+      
+      Siempre responde en español y de manera empática.`;
 
-  const processMessage = (text) => {
-    const lowerText = text.toLowerCase();
-    let response = "No encuentro información específica sobre eso. ¿Puedes ser más específico? Puedo ayudarte con rutas, horarios, accesibilidad, precios o estaciones.";
+      let apiUrl = GEMINI_API_URL;
+      let requestBody = {
+        contents: [{
+          parts: [{
+            text: `${systemPrompt}\n\nUsuario: ${message}`
+          }]
+        }],
+        generationConfig: {
+          temperature: 0.7,
+          topK: 1,
+          topP: 1,
+          maxOutputTokens: 1024,
+        }
+      };
 
-    // Búsqueda en base de conocimiento
-    for (const [key, responses] of Object.entries(transportKnowledgeBase)) {
-      if (lowerText.includes(key) || 
-          (key === 'rutas' && (lowerText.includes('ruta') || lowerText.includes('línea'))) ||
-          (key === 'horarios' && (lowerText.includes('horario') || lowerText.includes('hora'))) ||
-          (key === 'precios' && (lowerText.includes('precio') || lowerText.includes('tarifa') || lowerText.includes('costo'))) ||
-          (key === 'estaciones' && (lowerText.includes('estación') || lowerText.includes('parada')))) {
-        response = Array.isArray(responses) ? responses.join('\n') : responses;
-        break;
+      // Si hay imagen, usar el modelo de visión
+      if (imageBase64) {
+        apiUrl = GEMINI_VISION_API_URL;
+        requestBody.contents[0].parts = [
+          {
+            text: `${systemPrompt}\n\nAnaliza esta imagen del transporte público y responde: ${message}`
+          },
+          {
+            inlineData: {
+              mimeType: "image/jpeg",
+              data: imageBase64
+            }
+          }
+        ];
       }
-    }
 
-    // Respuestas específicas por tipo de usuario
-    if (userType === 'visual' && lowerText.includes('visual')) {
-      response = "Para usuarios con discapacidad visual ofrecemos:\n• Anuncios de voz en todas las estaciones\n• Señalización en braille\n• Asistencia personalizada\n• Aplicación con comandos de voz";
-    } else if (userType === 'motor' && (lowerText.includes('silla') || lowerText.includes('acceso'))) {
-      response = "Para usuarios con movilidad reducida:\n• 85% de estaciones tienen ascensores\n• Buses con piso bajo\n• Espacios reservados\n• Rampas de acceso\n• Asistencia en transbordos";
-    } else if (userType === 'elderly' && (lowerText.includes('mayor') || lowerText.includes('tiempo'))) {
-      response = "Para adultos mayores:\n• Asientos preferenciales\n• Tiempo extra en transbordos\n• Asistencia personalizada\n• Descuentos especiales\n• Información simplificada";
-    }
+      const response = await fetch(`${apiUrl}?key=${GEMINI_API_KEY}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody)
+      });
 
-    // Saludos y consultas generales
-    if (lowerText.includes('hola') || lowerText.includes('ayuda')) {
-      response = "¡Hola! Estoy aquí para ayudarte con el transporte público. Puedo informarte sobre rutas, horarios, accesibilidad, precios y estaciones. ¿Qué necesitas saber?";
-    }
+      if (!response.ok) {
+        throw new Error(`Error ${response.status}: ${response.statusText}`);
+      }
 
-    return response;
+      const data = await response.json();
+      
+      if (data.candidates && data.candidates[0]?.content?.parts[0]?.text) {
+        return data.candidates[0].content.parts[0].text;
+      } else {
+        throw new Error('Respuesta inesperada de la API');
+      }
+      
+    } catch (error) {
+      console.error('Error calling Gemini AI:', error);
+      
+      // Fallback con información básica si falla la API
+      return `Lo siento, estoy teniendo problemas para conectarme con el servicio de IA. 
+
+Aquí está la información básica que puedo proporcionarte:
+
+📍 Rutas principales: Línea 1 del Metro, Metropolitano, Buses urbanos
+⏰ Horarios: Metro (6:00-23:00), Buses (5:30-23:30)
+♿ Accesibilidad: Estaciones con ascensores y rampas disponibles
+💰 Tarifas: Metro S/1.50, Bus S/1.00, Metropolitano S/2.50
+
+¿Necesitas información específica sobre algún tema?`;
+    }
   };
 
-  const sendMessage = () => {
+  const sendMessage = async () => {
     if (inputText.trim()) {
       const userMessage = {
         id: Date.now(),
@@ -140,18 +166,152 @@ const ChatScreen = ({ navigation }) => {
         timestamp: new Date()
       };
 
-      const botResponse = {
-        id: Date.now() + 1,
-        text: processMessage(inputText),        isBot: true,
+      setMessages(prev => [...prev, userMessage]);
+      setInputText('');
+      setIsLoading(true);
+
+      try {
+        // Llamar a Gemini AI
+        const botResponseText = await callGeminiAI(inputText);
+        
+        const botResponse = {
+          id: Date.now() + 1,
+          text: botResponseText,
+          isBot: true,
+          timestamp: new Date()
+        };
+        
+        setMessages(prev => [...prev, botResponse]);
+
+        if (userType === 'visual' && preferences.voiceAlerts) {
+          Speech.speak(botResponseText, { language: 'es' });
+        }
+      } catch (error) {
+        console.error('Error en sendMessage:', error);
+        const errorResponse = {
+          id: Date.now() + 1,
+          text: "Lo siento, hubo un error al procesar tu mensaje. Por favor, intenta de nuevo.",
+          isBot: true,
+          timestamp: new Date()
+        };
+        setMessages(prev => [...prev, errorResponse]);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+  };
+
+  const takePhoto = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    
+    if (status !== 'granted') {
+      Alert.alert('Permisos', 'Necesitamos permisos de cámara para esta función');
+      return;
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 0.7,
+      base64: true
+    });
+
+    if (!result.canceled) {
+      const imageMessage = {
+        id: Date.now(),
+        text: "📷 Foto tomada para analizar",
+        image: result.assets[0].uri,
+        isBot: false,
         timestamp: new Date()
       };
       
-      setMessages(prev => [...prev, userMessage, botResponse]);
-      setInputText('');
+      setMessages(prev => [...prev, imageMessage]);
+      setIsLoading(true);
 
-      // Reproducir respuesta para usuarios con discapacidad visual
-      if (userType === 'visual' && preferences.voiceAlerts) {
-        Speech.speak(botResponse.text, { language: 'es' });
+      try {
+        const analysis = await callGeminiAI(
+          "Analiza esta imagen y proporciona información relevante sobre accesibilidad, señalización, rutas o cualquier aspecto importante para personas con discapacidad en el transporte público.",
+          result.assets[0].base64
+        );
+
+        const botResponse = {
+          id: Date.now() + 1,
+          text: analysis,
+          isBot: true,
+          timestamp: new Date()
+        };
+        
+        setMessages(prev => [...prev, botResponse]);
+
+        if (userType === 'visual' && preferences.voiceAlerts) {
+          Speech.speak(analysis, { language: 'es' });
+        }
+      } catch (error) {
+        console.error('Error analizando imagen:', error);
+        const errorResponse = {
+          id: Date.now() + 1,
+          text: "Lo siento, no pude analizar la imagen. Por favor, intenta de nuevo o describe lo que necesitas saber.",
+          isBot: true,
+          timestamp: new Date()
+        };
+        setMessages(prev => [...prev, errorResponse]);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+  };
+
+  const selectFromGallery = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 0.7,
+      base64: true
+    });
+
+    if (!result.canceled) {
+      const imageMessage = {
+        id: Date.now(),
+        text: "🖼️ Imagen seleccionada para analizar",
+        image: result.assets[0].uri,
+        isBot: false,
+        timestamp: new Date()
+      };
+      
+      setMessages(prev => [...prev, imageMessage]);
+      setIsLoading(true);
+
+      try {
+        const analysis = await callGeminiAI(
+          "Analiza esta imagen y proporciona información relevante sobre accesibilidad, señalización, rutas o cualquier aspecto importante para personas con discapacidad en el transporte público.",
+          result.assets[0].base64
+        );
+
+        const botResponse = {
+          id: Date.now() + 1,
+          text: analysis,
+          isBot: true,
+          timestamp: new Date()
+        };
+        
+        setMessages(prev => [...prev, botResponse]);
+
+        if (userType === 'visual' && preferences.voiceAlerts) {
+          Speech.speak(analysis, { language: 'es' });
+        }
+      } catch (error) {
+        console.error('Error analizando imagen:', error);
+        const errorResponse = {
+          id: Date.now() + 1,
+          text: "Lo siento, no pude analizar la imagen. Por favor, intenta de nuevo.",
+          isBot: true,
+          timestamp: new Date()
+        };
+        setMessages(prev => [...prev, errorResponse]);
+      } finally {
+        setIsLoading(false);
       }
     }
   };
@@ -159,14 +319,13 @@ const ChatScreen = ({ navigation }) => {
   const simulateVoiceInput = () => {
     setIsListening(true);
     
-    // Simulación de reconocimiento de voz
     setTimeout(() => {
       const exampleQueries = [
-        "¿Qué rutas hay disponibles?",
-        "¿Cuáles son los horarios del metro?",
-        "¿Hay accesibilidad para sillas de ruedas?",
-        "¿Cuánto cuesta el pasaje?",
-        "¿Dónde está la estación más cercana?"
+        "¿Cuáles son las rutas accesibles para sillas de ruedas?",
+        "¿Hay ascensores funcionando en la Estación Central?",
+        "¿Cuál es el horario del Metro hoy?",
+        "Necesito ir al aeropuerto, ¿qué ruta me recomiendas?",
+        "¿Hay descuentos para personas con discapacidad?"
       ];
       
       const randomQuery = exampleQueries[Math.floor(Math.random() * exampleQueries.length)];
@@ -174,6 +333,7 @@ const ChatScreen = ({ navigation }) => {
       setIsListening(false);
     }, 2000);
   };
+
   const getMessageStyle = () => {
     const baseStyle = userType === 'elderly' ? styles.largeText : styles.normalText;
     if (userType === 'visual') {
@@ -206,6 +366,7 @@ const ChatScreen = ({ navigation }) => {
     
     return baseStyle;
   };
+
   return (
     <KeyboardAvoidingView 
       style={[styles.container, userType === 'visual' && styles.darkTheme]}
@@ -225,8 +386,11 @@ const ChatScreen = ({ navigation }) => {
           userType === 'visual' && styles.whiteText,
           userType === 'elderly' && styles.largeTitle
         ]}>
-          Asistente de Transporte
+          Asistente IA 🤖
         </Text>
+        <View style={styles.geminiIndicator}>
+          <Text style={styles.geminiText}>Gemini AI</Text>
+        </View>
       </View>
 
       <ScrollView 
@@ -242,6 +406,9 @@ const ChatScreen = ({ navigation }) => {
             <Text style={[getMessageStyle(), message.isBot && styles.botText]}>
               {message.text}
             </Text>
+            {message.image && (
+              <Image source={{ uri: message.image }} style={styles.messageImage} />
+            )}
             <Text style={[
               styles.timestamp,
               userType === 'visual' && styles.whiteTimestamp,
@@ -251,6 +418,14 @@ const ChatScreen = ({ navigation }) => {
             </Text>
           </View>
         ))}
+        {isLoading && (
+          <View style={[styles.messageBubble, styles.botMessage, styles.loadingBubble]}>
+            <ActivityIndicator size="small" color="#4caf50" />
+            <Text style={[styles.normalText, { marginLeft: 10 }]}>
+              Pensando...
+            </Text>
+          </View>
+        )}
       </ScrollView>
 
       <View style={getInputContainerStyle()}>
@@ -262,12 +437,47 @@ const ChatScreen = ({ navigation }) => {
           ]}
           value={inputText}
           onChangeText={setInputText}
-          placeholder="Escribe tu consulta sobre transporte..."
+          placeholder="Escribe tu pregunta..."
           placeholderTextColor={userType === 'visual' ? '#ccc' : '#999'}
           multiline
           numberOfLines={userType === 'elderly' ? 3 : 2}
           maxLength={500}
+          editable={!isLoading}
         />
+        
+        <TouchableOpacity 
+          style={[
+            styles.galleryButton,
+            userType === 'elderly' && styles.largeButton
+          ]}
+          onPress={selectFromGallery}
+          disabled={isLoading}
+          accessibilityLabel="Seleccionar imagen"
+          accessibilityHint="Toca para seleccionar una imagen de tu galería"
+        >
+          <Ionicons 
+            name="image" 
+            size={userType === 'elderly' ? 28 : 24} 
+            color="white" 
+          />
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={[
+            styles.cameraButton,
+            userType === 'elderly' && styles.largeButton
+          ]}
+          onPress={takePhoto}
+          disabled={isLoading}
+          accessibilityLabel="Tomar foto"
+          accessibilityHint="Toca para tomar una foto y analizarla"
+        >
+          <Ionicons 
+            name="camera" 
+            size={userType === 'elderly' ? 28 : 24} 
+            color="white" 
+          />
+        </TouchableOpacity>
         
         <TouchableOpacity 
           style={[
@@ -276,7 +486,8 @@ const ChatScreen = ({ navigation }) => {
             userType === 'elderly' && styles.largeButton
           ]}
           onPress={simulateVoiceInput}
-          accessibilityLabel="Botón de reconocimiento de voz"
+          disabled={isLoading}
+          accessibilityLabel="Botón de voz"
           accessibilityHint="Toca para hablar tu consulta"
         >
           <Ionicons 
@@ -289,9 +500,11 @@ const ChatScreen = ({ navigation }) => {
         <TouchableOpacity 
           style={[
             styles.sendButton,
-            userType === 'elderly' && styles.largeButton
+            userType === 'elderly' && styles.largeButton,
+            (!inputText.trim() || isLoading) && styles.disabledButton
           ]} 
           onPress={sendMessage}
+          disabled={!inputText.trim() || isLoading}
           accessibilityLabel="Enviar mensaje"
           accessibilityHint="Toca para enviar tu consulta"
         >
@@ -344,12 +557,24 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginLeft: 15,
     color: '#333',
+    flex: 1,
   },
   largeTitle: {
     fontSize: 24,
   },
   whiteText: {
     color: '#fff',
+  },
+  geminiIndicator: {
+    backgroundColor: '#4285f4',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 15,
+  },
+  geminiText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
   messagesContainer: {
     flex: 1,
@@ -377,6 +602,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#e8f5e8',
     alignSelf: 'flex-start',
   },
+  loadingBubble: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   darkBotMessage: {
     backgroundColor: '#2d2d2d',
   },
@@ -391,6 +620,12 @@ const styles = StyleSheet.create({
   },
   botText: {
     color: '#2e7d32',
+  },
+  messageImage: {
+    width: '100%',
+    height: 200,
+    borderRadius: 10,
+    marginTop: 10,
   },
   timestamp: {
     fontSize: 12,
@@ -439,6 +674,26 @@ const styles = StyleSheet.create({
     borderColor: '#555',
     color: '#fff',
   },
+  galleryButton: {
+    backgroundColor: '#8e24aa',
+    borderRadius: 25,
+    padding: 12,
+    marginRight: 5,
+    minWidth: 50,
+    minHeight: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cameraButton: {
+    backgroundColor: '#9c27b0',
+    borderRadius: 25,
+    padding: 12,
+    marginRight: 5,
+    minWidth: 50,
+    minHeight: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   voiceButton: {
     backgroundColor: '#4caf50',
     borderRadius: 25,
@@ -460,6 +715,9 @@ const styles = StyleSheet.create({
     minHeight: 50,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  disabledButton: {
+    opacity: 0.5,
   },
   largeButton: {
     padding: 16,

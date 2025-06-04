@@ -12,6 +12,7 @@ const HomeScreen = ({ navigation }) => {
     detailLevel: 'medium',
     extraTime: 5
   });
+
   useEffect(() => {
     loadUserConfig();
   }, []);
@@ -59,6 +60,7 @@ const HomeScreen = ({ navigation }) => {
     };
     return messages[userType];
   };
+
   const getContainerStyle = () => {
     const baseStyle = styles.container;
     if (userType === 'visual') {
@@ -66,6 +68,7 @@ const HomeScreen = ({ navigation }) => {
     }
     return baseStyle;
   };
+
   const getTextStyle = () => {
     if (userType === 'visual') {
       return [styles.normalText, styles.whiteText];
@@ -102,9 +105,9 @@ const HomeScreen = ({ navigation }) => {
     }
     return baseStyle;
   };
+
   return (
     <View style={getContainerStyle()}>
-      {/* Header con configuración */}
       <View style={styles.header}>
         <Text style={getTitleStyle()}>Asistente de Transporte</Text>
         <TouchableOpacity 
@@ -121,7 +124,6 @@ const HomeScreen = ({ navigation }) => {
         </TouchableOpacity>
       </View>
 
-      {/* Indicador de tipo de usuario */}
       {userType && (
         <View style={[
           styles.userTypeContainer,
@@ -137,7 +139,6 @@ const HomeScreen = ({ navigation }) => {
         </View>
       )}
 
-      {/* Mensaje de bienvenida */}
       <View style={[
         styles.welcomeContainer,
         userType === 'visual' && styles.darkWelcomeContainer,
@@ -152,20 +153,19 @@ const HomeScreen = ({ navigation }) => {
         </Text>
       </View>
 
-      {/* Botones principales */}
       <View style={styles.buttonContainer}>
         <TouchableOpacity 
           style={[getButtonStyle(), styles.primaryButton]}
           onPress={() => navigation.navigate('Chat')}
-          accessibilityLabel="Consultar por voz"
-          accessibilityHint="Toca para abrir el asistente de voz"
+          accessibilityLabel="Asistente inteligente"
+          accessibilityHint="Toca para abrir el asistente inteligente"
         >
           <Ionicons name="chatbubble" size={getIconSize()} color="white" />
           <Text style={[
             styles.buttonText,
             userType === 'elderly' && styles.largeButtonText
           ]}>
-            Consultar por Voz
+            Asistente Inteligente
           </Text>
         </TouchableOpacity>
 
@@ -181,6 +181,21 @@ const HomeScreen = ({ navigation }) => {
             userType === 'elderly' && styles.largeButtonText
           ]}>
             Mi Viaje
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={[getButtonStyle(), styles.reportButton]}
+          onPress={() => navigation.navigate('Report')}
+          accessibilityLabel="Reportar problemas"
+          accessibilityHint="Toca para reportar problemas de accesibilidad"
+        >
+          <Ionicons name="warning" size={getIconSize()} color="white" />
+          <Text style={[
+            styles.buttonText,
+            userType === 'elderly' && styles.largeButtonText
+          ]}>
+            Reportar Problemas
           </Text>
         </TouchableOpacity>
 
@@ -202,7 +217,6 @@ const HomeScreen = ({ navigation }) => {
         )}
       </View>
 
-      {/* Indicadores de accesibilidad */}
       {userType && (
         <View style={styles.accessibilityIndicators}>
           {userType === 'visual' && preferences.voiceAlerts && (
@@ -348,7 +362,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#4caf50',
   },
   secondaryButton: {
-    backgroundColor: '#2196f3',  },
+    backgroundColor: '#2196f3',
+  },
+  reportButton: {
+    backgroundColor: '#ff5722',
+  },
   operatorButton: {
     backgroundColor: '#ff9800',
   },
@@ -357,7 +375,8 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     marginLeft: 15,
-  },  largeButtonText: {
+  },
+  largeButtonText: {
     fontSize: 22,
   },
   normalText: {
