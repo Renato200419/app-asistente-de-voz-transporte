@@ -7,7 +7,8 @@ import {
   ScrollView,
   Image,
   TextInput,
-  Alert
+  Alert,
+  Vibration
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -79,14 +80,22 @@ const ReportScreen = ({ navigation }) => {
     }
   };
 
+  const vibrateIfEnabled = () => {
+    if (userType) {
+      // Simula preferencia, puedes mejorar para leer de config
+      Vibration.vibrate(50);
+    }
+  };
+
   const submitReport = async () => {
     if (!newReport.location || !newReport.description) {
+      vibrateIfEnabled();
       Alert.alert('Error', 'Por favor completa todos los campos');
       return;
     }
-
     try {
       await ReportService.saveReport(newReport);
+      vibrateIfEnabled();
       Alert.alert('Éxito', 'Reporte enviado correctamente');
       setShowForm(false);
       setNewReport({
@@ -97,11 +106,13 @@ const ReportScreen = ({ navigation }) => {
       });
       loadReports();
     } catch (error) {
+      vibrateIfEnabled();
       Alert.alert('Error', 'No se pudo enviar el reporte');
     }
   };
 
   const confirmReport = async (reportId) => {
+    vibrateIfEnabled();
     await ReportService.confirmReport(reportId);
     loadReports();
   };
@@ -246,53 +257,64 @@ const ReportScreen = ({ navigation }) => {
       )}
 
       <ScrollView style={styles.reportsList}>
-        {reports.map((report) => (
-          <View key={report.id} style={[
-            styles.reportCard, 
-            userType === 'visual' && styles.darkCard,
-            userType === 'elderly' && styles.largeCard
-          ]}>
-            <View style={styles.reportHeader}>
-              <Ionicons name="location" size={20} color="#2196f3" />
+        {reports.length === 0 ? (
+          <View style={{ alignItems: 'center', marginTop: 40 }}>
+            <Text style={{ color: '#888', fontSize: 18, textAlign: 'center' }}>
+              ¡No hay reportes recientes!
+            </Text>
+            <Text style={{ color: '#bbb', fontSize: 15, marginTop: 8, textAlign: 'center' }}>
+              Sé el primero en reportar un problema de accesibilidad y ayuda a otros usuarios.
+            </Text>
+          </View>
+        ) : (
+          reports.map((report) => (
+            <View key={report.id} style={[
+              styles.reportCard, 
+              userType === 'visual' && styles.darkCard,
+              userType === 'elderly' && styles.largeCard
+            ]}>
+              <View style={styles.reportHeader}>
+                <Ionicons name="location" size={20} color="#2196f3" />
+                <Text style={[
+                  styles.reportLocation, 
+                  getTextStyle()
+                ]}>
+                  {report.location}
+                </Text>
+              </View>
+              
               <Text style={[
-                styles.reportLocation, 
+                styles.reportDescription, 
                 getTextStyle()
               ]}>
-                {report.location}
-              </Text>
-            </View>
-            
-            <Text style={[
-              styles.reportDescription, 
-              getTextStyle()
-            ]}>
-              {report.description}
-            </Text>
-            
-            {report.image && (
-              <Image source={{ uri: report.image }} style={styles.reportImage} />
-            )}
-            
-            <View style={styles.reportFooter}>
-              <Text style={[
-                styles.reportTime,
-                userType === 'visual' && styles.whiteTime
-              ]}>
-                {new Date(report.timestamp).toLocaleString()}
+                {report.description}
               </Text>
               
-              <TouchableOpacity
-                style={styles.confirmButton}
-                onPress={() => confirmReport(report.id)}
-              >
-                <Ionicons name="checkmark-circle" size={20} color="#4caf50" />
-                <Text style={styles.confirmText}>
-                  {report.confirmations} confirmaciones
+              {report.image && (
+                <Image source={{ uri: report.image }} style={styles.reportImage} />
+              )}
+              
+              <View style={styles.reportFooter}>
+                <Text style={[
+                  styles.reportTime,
+                  userType === 'visual' && styles.whiteTime
+                ]}>
+                  {new Date(report.timestamp).toLocaleString()}
                 </Text>
-              </TouchableOpacity>
+                
+                <TouchableOpacity
+                  style={styles.confirmButton}
+                  onPress={() => confirmReport(report.id)}
+                >
+                  <Ionicons name="checkmark-circle" size={20} color="#4caf50" />
+                  <Text style={styles.confirmText}>
+                    {report.confirmations} confirmaciones
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
-        ))}
+          ))
+        )}
       </ScrollView>
     </View>
   );
@@ -332,15 +354,19 @@ const styles = StyleSheet.create({
   formContainer: {
     backgroundColor: 'white',
     margin: 20,
-    padding: 20,
-    borderRadius: 10,
+    padding: 22,
+    borderRadius: 12,
     elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
   },
   darkForm: {
     backgroundColor: '#2d2d2d',
   },
   largeForm: {
-    padding: 25,
+    padding: 28,
     borderRadius: 15,
   },
   input: {
@@ -382,8 +408,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#2196f3',
-    padding: 10,
-    borderRadius: 8,
+    padding: 12,
+    borderRadius: 10,
+    marginHorizontal: 5,
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
   },
   largeImageButton: {
     padding: 15,
@@ -400,12 +432,19 @@ const styles = StyleSheet.create({
   },
   submitButton: {
     backgroundColor: '#4caf50',
-    padding: 15,
-    borderRadius: 8,
+    padding: 17,
+    borderRadius: 10,
     alignItems: 'center',
+    marginTop: 20,
+    marginBottom: 20,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
   },
   largeSubmitButton: {
-    padding: 20,
+    padding: 22,
     borderRadius: 12,
   },
   submitButtonText: {
@@ -422,16 +461,20 @@ const styles = StyleSheet.create({
   },
   reportCard: {
     backgroundColor: 'white',
-    padding: 15,
-    borderRadius: 10,
-    marginBottom: 15,
-    elevation: 2,
+    padding: 18,
+    borderRadius: 12,
+    marginBottom: 18,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
   },
   darkCard: {
     backgroundColor: '#2d2d2d',
   },
   largeCard: {
-    padding: 20,
+    padding: 22,
     borderRadius: 15,
   },
   reportHeader: {

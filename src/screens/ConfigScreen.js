@@ -73,14 +73,9 @@ const ConfigScreen = ({ navigation }) => {
       title: 'Adulto Mayor',
       description: 'Interfaz simplificada con botones grandes y tiempos extendidos',
       icon: 'heart'
-    },
-    {
-      id: 'operator',
-      title: 'Operador de Transporte',
-      description: 'Herramientas de gestión de información de transporte',
-      icon: 'business'
     }
   ];
+
   const getContainerStyle = () => {
     const baseStyle = styles.container;
     if (currentUserType === 'visual') {
@@ -362,20 +357,23 @@ const styles = StyleSheet.create({
   },
   userTypeCard: {
     backgroundColor: 'white',
-    padding: 15,
-    borderRadius: 10,
-    marginBottom: 10,
+    padding: 18,
+    borderRadius: 12,
+    marginBottom: 14,
     elevation: 2,
     borderWidth: 2,
     borderColor: 'transparent',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
   },
   darkCard: {
     backgroundColor: '#2d2d2d',
   },
   largeCard: {
-    padding: 20,
+    padding: 22,
     borderRadius: 15,
-    marginBottom: 15,
   },
   selectedCard: {
     borderColor: '#4caf50',
@@ -439,11 +437,16 @@ const styles = StyleSheet.create({
   },
   saveButton: {
     backgroundColor: '#4caf50',
-    padding: 18,
-    borderRadius: 10,
+    padding: 20,
+    borderRadius: 12,
     alignItems: 'center',
     marginTop: 20,
     marginBottom: 20,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
   },
   largeSaveButton: {
     padding: 25,

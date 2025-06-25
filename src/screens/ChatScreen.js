@@ -4,7 +4,7 @@ import * as Speech from 'expo-speech';
 import * as ImagePicker from 'expo-image-picker';
 import { useEffect, useState } from 'react';
 import Voice from '@react-native-voice/voice';
-import { PermissionsAndroid } from 'react-native';
+import { PermissionsAndroid, Vibration } from 'react-native';
 import {
   ScrollView,
   StyleSheet,
@@ -16,15 +16,46 @@ import {
   Platform,
   Alert,
   Image,
-  ActivityIndicator
+  ActivityIndicator,
+  useSafeAreaInsets,
+  Keyboard
 } from 'react-native';
+import { useSafeAreaInsets as useSafeAreaInsetsSafe } from 'react-native-safe-area-context';
+import { FlatList } from 'react-native';
 
 // Configuración de Gemini AI
 const GEMINI_API_KEY = 'AIzaSyAv9ReoM5Bd0OjXdAsB-lhJzKgiTNUE_Hw';
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
 const GEMINI_VISION_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
 
-const ChatScreen = ({ navigation }) => {
+// Componente para renderizar texto con formato simple (negrita, listas, saltos de línea)
+function FormattedText({ text }) {
+  // Reemplaza **negrita** por <Text style={...}>
+  const parseBold = (str) => {
+    const parts = str.split(/(\*\*[^*]+\*\*)/g);
+    return parts.map((part, i) => {
+      if (/^\*\*[^*]+\*\*$/.test(part)) {
+        return <Text key={i} style={{ fontWeight: 'bold', color: '#1976d2' }}>{part.replace(/\*\*/g, '')}</Text>;
+      }
+      return part;
+    });
+  };
+  // Soporte para listas y saltos de línea
+  const lines = text.split(/\n|\r\n/);
+  return (
+    <View>
+      {lines.map((line, idx) => {
+        if (/^\s*[-•*]\s+/.test(line)) {
+          // Lista
+          return <Text key={idx} style={{ marginLeft: 16, color: '#333' }}>• {parseBold(line.replace(/^\s*[-•*]\s+/, ''))}</Text>;
+        }
+        return <Text key={idx} style={{ color: '#333' }}>{parseBold(line)}</Text>;
+      })}
+    </View>
+  );
+}
+
+const ChatScreen = ({ navigation, route }) => {
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [isListening, setIsListening] = useState(false);
@@ -38,15 +69,47 @@ const ChatScreen = ({ navigation }) => {
     extraTime: 5
   });
   const [voiceError, setVoiceError] = useState(null);
+  const insets = useSafeAreaInsetsSafe();
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [asistenciaContexto, setAsistenciaContexto] = useState(route?.params?.asistenciaContexto || null);
+  // Estado para previsualización de imagen antes de enviar
+  const [pendingImage, setPendingImage] = useState(null);
 
   useEffect(() => {
     loadUserConfig();
-    initializeChat();
+    // Si hay contexto de asistencia, mostrarlo como mensaje inicial y guardarlo en estado
+    if (route && route.params && route.params.asistenciaContexto) {
+      setAsistenciaContexto(route.params.asistenciaContexto);
+      const welcomeMessage = {
+        id: Date.now(),
+        text: "¡Hola! Soy tu asistente inteligente de transporte potenciado por IA. Puedo ayudarte con:\n\n• Información sobre rutas y horarios\n• Análisis de fotos para detectar problemas de accesibilidad\n• Navegación paso a paso\n• Reportes de problemas en tiempo real\n\n¿En qué puedo ayudarte?",
+        isBot: true,
+        timestamp: new Date()
+      };
+      const contextoMessage = {
+        id: Date.now() + 1,
+        text: route.params.asistenciaContexto,
+        isBot: false,
+        timestamp: new Date()
+      };
+      setMessages([welcomeMessage, contextoMessage]);
+      if (userType === 'visual' && preferences.voiceAlerts) {
+        Speech.speak(welcomeMessage.text, { language: 'es' });
+        Speech.speak(route.params.asistenciaContexto, { language: 'es' });
+      }
+    } else {
+      setAsistenciaContexto(null);
+      initializeChat();
+    }
     setupVoiceRecognition();
+    const showSub = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => setKeyboardVisible(false));
     return () => {
       Voice.destroy().then(() => Voice.removeAllListeners());
+      showSub.remove();
+      hideSub.remove();
     };
-  }, []);
+  }, [route && route.params && route.params.asistenciaContexto]);
 
   const setupVoiceRecognition = () => {
     Voice.onSpeechStart = onSpeechStart;
@@ -157,9 +220,11 @@ const ChatScreen = ({ navigation }) => {
       Speech.speak(welcomeMessage.text, { language: 'es' });
     }
   };
-  // Función para llamar a Gemini AI
+
+  // Incluir el contexto en cada consulta a la IA
   const callGeminiAI = async (message, imageBase64 = null) => {
     try {
+      let contexto = asistenciaContexto ? `\n\n[Contexto del viaje]: ${asistenciaContexto}` : '';
       const systemPrompt = `Eres un asistente especializado en transporte público y accesibilidad para personas con discapacidades. 
       Tu conocimiento incluye:
       - Rutas de transporte público (Metro, buses, Metropolitano)
@@ -179,7 +244,7 @@ const ChatScreen = ({ navigation }) => {
       let requestBody = {
         contents: [{
           parts: [{
-            text: `${systemPrompt}\n\nUsuario: ${message}`
+            text: `${systemPrompt}\n\nUsuario: ${message}${contexto}`
           }]
         }],
         generationConfig: {
@@ -194,7 +259,7 @@ const ChatScreen = ({ navigation }) => {
       if (imageBase64) {
         requestBody.contents[0].parts = [
           {
-            text: `${systemPrompt}\n\nAnaliza esta imagen del transporte público y responde: ${message}`
+            text: `${systemPrompt}\n\nAnaliza esta imagen del transporte público y responde: ${message}${contexto}`
           },
           {
             inlineData: {
@@ -232,60 +297,58 @@ const ChatScreen = ({ navigation }) => {
       console.error('Error calling Gemini AI:', error);
       
       // Fallback con información básica si falla la API
-      return `Lo siento, estoy teniendo problemas para conectarme con el servicio de IA. 
+      return `Lo siento, estoy teniendo problemas para conectarme con el servicio de IA. \n\nAquí está la información básica que puedo proporcionarte:\n\n📍 Rutas principales: Línea 1 del Metro, Metropolitano, Buses urbanos\n⏰ Horarios: Metro (6:00-23:00), Buses (5:30-23:30)\n♿ Accesibilidad: Estaciones con ascensores y rampas disponibles\n💰 Tarifas: Metro S/1.50, Bus S/1.00, Metropolitano S/2.50`;
+    }
+  };
 
-Aquí está la información básica que puedo proporcionarte:
-
-📍 Rutas principales: Línea 1 del Metro, Metropolitano, Buses urbanos
-⏰ Horarios: Metro (6:00-23:00), Buses (5:30-23:30)
-♿ Accesibilidad: Estaciones con ascensores y rampas disponibles
-💰 Tarifas: Metro S/1.50, Bus S/1.00, Metropolitano S/2.50`;
+  const vibrateIfEnabled = () => {
+    if (userType && preferences && preferences.hapticFeedback) {
+      Vibration.vibrate(50);
     }
   };
 
   const sendMessage = async () => {
-    if (inputText.trim()) {
-      const userMessage = {
-        id: Date.now(),
-        text: inputText,
-        isBot: false,
+    if (!inputText.trim()) {
+      vibrateIfEnabled();
+      Alert.alert('Campo vacío', 'Por favor escribe tu mensaje antes de enviar.');
+      return;
+    }
+    const userMessage = {
+      id: Date.now(),
+      text: inputText,
+      isBot: false,
+      timestamp: new Date()
+    };
+    setMessages(prev => [...prev, userMessage]);
+    setInputText('');
+    setIsLoading(true);
+    try {
+      const botResponseText = await callGeminiAI(inputText);
+      const botResponse = {
+        id: Date.now() + 1,
+        text: botResponseText,
+        isBot: true,
         timestamp: new Date()
       };
-
-      setMessages(prev => [...prev, userMessage]);
-      setInputText('');
-      setIsLoading(true);
-
-      try {
-        // Llamar a Gemini AI
-        const botResponseText = await callGeminiAI(inputText);
-        
-        const botResponse = {
-          id: Date.now() + 1,
-          text: botResponseText,
-          isBot: true,
-          timestamp: new Date()
-        };
-        
-        setMessages(prev => [...prev, botResponse]);
-
-        if (userType === 'visual' && preferences.voiceAlerts) {
-          Speech.speak(botResponseText, { language: 'es' });
-        }
-      } catch (error) {
-        console.error('Error en sendMessage:', error);
-        const errorResponse = {
-          id: Date.now() + 1,
-          text: "Lo siento, hubo un error al procesar tu mensaje. Por favor, intenta de nuevo.",
-          isBot: true,
-          timestamp: new Date()
-        };
-        setMessages(prev => [...prev, errorResponse]);
-      } finally {
-        setIsLoading(false);
+      setMessages(prev => [...prev, botResponse]);
+      if (userType === 'visual' && preferences.voiceAlerts) {
+        Speech.speak(botResponseText, { language: 'es' });
       }
+    } catch (error) {
+      vibrateIfEnabled();
+      const errorResponse = {
+        id: Date.now() + 1,
+        text: "Lo siento, hubo un error al procesar tu mensaje. Por favor, intenta de nuevo.",
+        isBot: true,
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, errorResponse]);
+    } finally {
+      setIsLoading(false);
     }
-  };  const takePhoto = async () => {
+  };
+
+  const takePhoto = async () => {
     try {
       // Verificar permisos de cámara
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
@@ -303,53 +366,17 @@ Aquí está la información básica que puedo proporcionarte:
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        const imageMessage = {
-          id: Date.now(),
-          text: "📷 Foto tomada para analizar",
-          image: result.assets[0].uri,
-          isBot: false,
-          timestamp: new Date()
-        };
-        
-        setMessages(prev => [...prev, imageMessage]);
-        setIsLoading(true);
-
-        try {
-          const analysis = await callGeminiAI(
-            "Analiza esta imagen y proporciona información relevante sobre accesibilidad, señalización, rutas o cualquier aspecto importante para personas con discapacidad en el transporte público.",
-            result.assets[0].base64
-          );
-
-          const botResponse = {
-            id: Date.now() + 1,
-            text: analysis,
-            isBot: true,
-            timestamp: new Date()
-          };
-          
-          setMessages(prev => [...prev, botResponse]);
-
-          if (userType === 'visual' && preferences.voiceAlerts) {
-            Speech.speak(analysis, { language: 'es' });
-          }
-        } catch (error) {
-          console.error('Error analizando imagen:', error);
-          const errorResponse = {
-            id: Date.now() + 1,
-            text: "Lo siento, no pude analizar la imagen. Por favor, intenta de nuevo o describe lo que necesitas saber.",
-            isBot: true,
-            timestamp: new Date()
-          };
-          setMessages(prev => [...prev, errorResponse]);
-        } finally {
-          setIsLoading(false);
-        }
+        setPendingImage({
+          uri: result.assets[0].uri,
+          base64: result.assets[0].base64
+        });
       }
     } catch (error) {
       console.error('Error abriendo cámara:', error);
       Alert.alert('Error', 'No se pudo abrir la cámara. Asegúrate de que tienes una cámara disponible y permisos habilitados.');
     }
   };
+
   const selectFromGallery = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -360,49 +387,59 @@ Aquí está la información básica que puedo proporcionarte:
     });
 
     if (!result.canceled) {
-      const imageMessage = {
-        id: Date.now(),
-        text: "🖼️ Imagen seleccionada para analizar",
-        image: result.assets[0].uri,
-        isBot: false,
+      setPendingImage({
+        uri: result.assets[0].uri,
+        base64: result.assets[0].base64
+      });
+    }
+  };
+
+  // Enviar imagen con contexto
+  const sendPendingImage = async () => {
+    if (!pendingImage) return;
+    if (!inputText.trim()) {
+      vibrateIfEnabled();
+      Alert.alert('Campo vacío', 'Por favor escribe un mensaje de contexto para la imagen.');
+      return;
+    }
+    const imageMessage = {
+      id: Date.now(),
+      text: inputText,
+      image: pendingImage.uri,
+      isBot: false,
+      timestamp: new Date()
+    };
+    setMessages(prev => [...prev, imageMessage]);
+    setInputText('');
+    setIsLoading(true);
+    setPendingImage(null);
+    try {
+      const analysis = await callGeminiAI(inputText, pendingImage.base64);
+      const botResponse = {
+        id: Date.now() + 1,
+        text: analysis,
+        isBot: true,
         timestamp: new Date()
       };
-      
-      setMessages(prev => [...prev, imageMessage]);
-      setIsLoading(true);
-
-      try {
-        const analysis = await callGeminiAI(
-          "Analiza esta imagen y proporciona información relevante sobre accesibilidad, señalización, rutas o cualquier aspecto importante para personas con discapacidad en el transporte público.",
-          result.assets[0].base64
-        );
-
-        const botResponse = {
-          id: Date.now() + 1,
-          text: analysis,
-          isBot: true,
-          timestamp: new Date()
-        };
-        
-        setMessages(prev => [...prev, botResponse]);
-
-        if (userType === 'visual' && preferences.voiceAlerts) {
-          Speech.speak(analysis, { language: 'es' });
-        }
-      } catch (error) {
-        console.error('Error analizando imagen:', error);
-        const errorResponse = {
-          id: Date.now() + 1,
-          text: "Lo siento, no pude analizar la imagen. Por favor, intenta de nuevo.",
-          isBot: true,
-          timestamp: new Date()
-        };
-        setMessages(prev => [...prev, errorResponse]);
-      } finally {
-        setIsLoading(false);
+      setMessages(prev => [...prev, botResponse]);
+      if (userType === 'visual' && preferences.voiceAlerts) {
+        Speech.speak(analysis, { language: 'es' });
       }
+    } catch (error) {
+      console.error('Error analizando imagen:', error);
+      const errorResponse = {
+        id: Date.now() + 1,
+        text: "Lo siento, no pude analizar la imagen. Por favor, intenta de nuevo o describe lo que necesitas saber.",
+        isBot: true,
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, errorResponse]);
+    } finally {
+      setIsLoading(false);
     }
-  };  const startVoiceInput = () => {
+  };
+
+  const startVoiceInput = () => {
     setIsListening(true);
     
     // Simular el proceso de escucha
@@ -418,45 +455,57 @@ Aquí está la información básica que puedo proporcionarte:
   };
 
   const getMessageStyle = () => {
-    const baseStyle = userType === 'elderly' ? styles.largeText : styles.normalText;
-    if (userType === 'visual') {
-      return [baseStyle, styles.whiteText];
-    }
-    return baseStyle;
+    if (userType === 'elderly') return [styles.largeText];
+    if (userType === 'visual') return [styles.normalText, { color: '#fff' }];
+    return styles.normalText;
   };
 
   const getInputContainerStyle = () => {
-    const baseStyle = styles.inputContainer;
-    if (userType === 'visual') {
-      return [baseStyle, styles.darkInputContainer];
-    }
-    return baseStyle;
+    if (userType === 'visual') return [styles.inputContainer, { backgroundColor: '#1e1e1e', borderTopColor: '#444' }];
+    return styles.inputContainer;
   };
 
   const getBubbleStyle = (isBot) => {
-    const baseStyle = [
-      styles.messageBubble,
-      isBot ? styles.botMessage : styles.userMessage
-    ];
-    
-    if (userType === 'elderly') {
-      baseStyle.push(styles.largeBubble);
-    }
-    
-    if (userType === 'visual' && isBot) {
-      baseStyle.push(styles.darkBotMessage);
-    }
-    
-    return baseStyle;
+    let base = [styles.messageBubble, isBot ? styles.botMessage : styles.userMessage];
+    if (userType === 'elderly') base.push(styles.largeBubble);
+    if (userType === 'visual' && isBot) base.push({ backgroundColor: '#2d2d2d' });
+    return base;
+  };
+
+  const getTextInputStyle = () => {
+    let base = [styles.textInput];
+    if (userType === 'elderly') base.push(styles.largeInput);
+    if (userType === 'visual') base.push({ backgroundColor: '#333', borderColor: '#555', color: '#fff' });
+    return base;
+  };
+
+  const getTimestampStyle = () => {
+    let base = [styles.timestamp];
+    if (userType === 'visual') base.push({ color: '#bbb' });
+    if (userType === 'elderly') base.push(styles.largeTimestamp);
+    return base;
   };
 
   return (
     <KeyboardAvoidingView 
-      style={[styles.container, userType === 'visual' && styles.darkTheme]}
+      style={[
+        styles.container,
+        userType === 'visual' && { backgroundColor: '#121212' },
+        { paddingBottom: !keyboardVisible ? (insets.bottom || 0) : 0 }
+      ]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 25}
     >
-      <View style={[styles.header, userType === 'visual' && styles.darkHeader]}>
+      {/* Indicador visual de contexto de asistencia */}
+      {asistenciaContexto && (
+        <View style={styles.contextIndicator}>
+          <Ionicons name="information-circle" size={20} color="#1976d2" style={{ marginRight: 8 }} />
+          <Text style={styles.contextIndicatorText} numberOfLines={3}>
+            <Text style={{ fontWeight: 'bold' }}>Contexto actual: </Text>{asistenciaContexto}
+          </Text>
+        </View>
+      )}
+      <View style={[styles.header, userType === 'visual' && { borderBottomColor: '#444' }]}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Ionicons 
             name="arrow-back" 
@@ -466,7 +515,7 @@ Aquí está la información básica que puedo proporcionarte:
         </TouchableOpacity>
         <Text style={[
           styles.title, 
-          userType === 'visual' && styles.whiteText,
+          userType === 'visual' && { color: '#fff' },
           userType === 'elderly' && styles.largeTitle
         ]}>
           Asistente IA 🤖
@@ -481,121 +530,158 @@ Aquí está la información básica que puedo proporcionarte:
         contentContainerStyle={styles.messagesContent}
         showsVerticalScrollIndicator={false}
       >
-        {messages.map(message => (
-          <View 
-            key={message.id} 
-            style={getBubbleStyle(message.isBot)}
-          >
-            <Text style={[getMessageStyle(), message.isBot && styles.botText]}>
-              {message.text}
+        {messages.length === 0 ? (
+          <View style={{ alignItems: 'center', marginTop: 40 }}>
+            <Text style={{ color: '#888', fontSize: 18, textAlign: 'center' }}>
+              ¡No hay mensajes aún!
             </Text>
-            {message.image && (
-              <Image source={{ uri: message.image }} style={styles.messageImage} />
-            )}
-            <Text style={[
-              styles.timestamp,
-              userType === 'visual' && styles.whiteTimestamp,
-              userType === 'elderly' && styles.largeTimestamp
-            ]}>
-              {message.timestamp.toLocaleTimeString()}
+            <Text style={{ color: '#bbb', fontSize: 15, marginTop: 8, textAlign: 'center' }}>
+              Escribe tu consulta o usa el micrófono para comenzar a interactuar con el asistente.
             </Text>
           </View>
-        ))}
+        ) : (
+          messages.map(message => (
+            <View 
+              key={message.id} 
+              style={getBubbleStyle(message.isBot)}
+            >
+              {message.image && (
+                <Image 
+                  source={{ uri: message.image }} 
+                  style={styles.chatImage} 
+                  resizeMode="cover"
+                  accessible accessibilityLabel="Imagen enviada"
+                />
+              )}
+              <FormattedText text={message.text} />
+              <Text style={getTimestampStyle()}>
+                {message.timestamp.toLocaleTimeString()}
+              </Text>
+            </View>
+          ))
+        )}
         {isLoading && (
           <View style={[styles.messageBubble, styles.botMessage, styles.loadingBubble]}>
             <ActivityIndicator size="small" color="#4caf50" />
-            <Text style={[styles.normalText, { marginLeft: 10 }]}>
-              Pensando...
-            </Text>
+            <Text style={[styles.normalText, { marginLeft: 10 }]}>Pensando...</Text>
           </View>
         )}
       </ScrollView>
 
       <View style={getInputContainerStyle()}>
-        <TextInput
-          style={[
-            styles.textInput,
-            userType === 'elderly' && styles.largeInput,
-            userType === 'visual' && styles.darkInput
-          ]}
-          value={inputText}
-          onChangeText={setInputText}
-          placeholder="Escribe tu pregunta..."
-          placeholderTextColor={userType === 'visual' ? '#ccc' : '#999'}
-          multiline
-          numberOfLines={userType === 'elderly' ? 3 : 2}
-          maxLength={500}
-          editable={!isLoading}
-        />
-        
-        <TouchableOpacity 
-          style={[
-            styles.galleryButton,
-            userType === 'elderly' && styles.largeButton
-          ]}
-          onPress={selectFromGallery}
-          disabled={isLoading}
-          accessibilityLabel="Seleccionar imagen"
-          accessibilityHint="Toca para seleccionar una imagen de tu galería"
-        >
-          <Ionicons 
-            name="image" 
-            size={userType === 'elderly' ? 28 : 24} 
-            color="white" 
-          />
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={[
-            styles.cameraButton,
-            userType === 'elderly' && styles.largeButton
-          ]}
-          onPress={takePhoto}
-          disabled={isLoading}
-          accessibilityLabel="Tomar foto"
-          accessibilityHint="Toca para tomar una foto y analizarla"
-        >
-          <Ionicons 
-            name="camera" 
-            size={userType === 'elderly' ? 28 : 24} 
-            color="white" 
-          />
-        </TouchableOpacity>
-          <TouchableOpacity 
-          style={[
-            styles.voiceButton,
-            isListening && styles.listeningButton,
-            userType === 'elderly' && styles.largeButton
-          ]}
-          onPress={simulateVoiceInput}
-          disabled={isLoading}
-          accessibilityLabel={isListening ? "Detener grabación de voz" : "Iniciar grabación de voz"}
-          accessibilityHint={isListening ? "Toca para detener la grabación de voz" : "Toca para iniciar la grabación de voz"}
-        >
-          <Ionicons 
-            name={isListening ? "stop" : "mic"} 
-            size={userType === 'elderly' ? 28 : 24} 
-            color="white" 
-          />
-        </TouchableOpacity>
-
-        <TouchableOpacity 
-          style={[
-            styles.sendButton,
-            userType === 'elderly' && styles.largeButton,
-            (!inputText.trim() || isLoading) && styles.disabledButton
-          ]} 
-          onPress={sendMessage}
-          disabled={!inputText.trim() || isLoading}
-          accessibilityLabel="Enviar mensaje"
-          accessibilityHint="Toca para enviar tu consulta"
-        >
-          <Ionicons 
-            name="send" 
-            size={userType === 'elderly' ? 28 : 24} 
-            color="white" 
-          />
-        </TouchableOpacity>
+        {pendingImage ? (
+          <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
+            <Image source={{ uri: pendingImage.uri }} style={{ width: 54, height: 54, borderRadius: 8, marginRight: 10, borderWidth: 1, borderColor: '#1976d2' }} />
+            <TextInput
+              style={[getTextInputStyle(), { flex: 1, marginRight: 8 }]}
+              value={inputText}
+              onChangeText={setInputText}
+              placeholder="Describe el problema, lugar o contexto de la foto..."
+              placeholderTextColor={userType === 'visual' ? '#ccc' : '#999'}
+              multiline
+              numberOfLines={2}
+              maxLength={300}
+              editable={!isLoading}
+            />
+            <TouchableOpacity
+              style={[styles.sendButton, (!inputText.trim() || isLoading) && styles.disabledButton]}
+              onPress={sendPendingImage}
+              disabled={!inputText.trim() || isLoading}
+              accessibilityLabel="Enviar imagen"
+              accessibilityHint="Toca para enviar la imagen y el mensaje de contexto"
+            >
+              <Ionicons name="send" size={24} color="white" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.cancelButton, { marginLeft: 6 }]}
+              onPress={() => { setPendingImage(null); setInputText(''); }}
+              accessibilityLabel="Cancelar imagen"
+              accessibilityHint="Toca para cancelar el envío de la imagen"
+            >
+              <Ionicons name="close" size={24} color="white" />
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <>
+            <TextInput
+              style={getTextInputStyle()}
+              value={inputText}
+              onChangeText={setInputText}
+              placeholder="Escribe tu pregunta..."
+              placeholderTextColor={userType === 'visual' ? '#ccc' : '#999'}
+              multiline
+              numberOfLines={userType === 'elderly' ? 3 : 2}
+              maxLength={500}
+              editable={!isLoading}
+            />
+            <TouchableOpacity 
+              style={[
+                styles.galleryButton,
+                userType === 'elderly' && styles.largeButton
+              ]}
+              onPress={selectFromGallery}
+              disabled={isLoading}
+              accessibilityLabel="Seleccionar imagen"
+              accessibilityHint="Toca para seleccionar una imagen de tu galería"
+            >
+              <Ionicons 
+                name="image" 
+                size={userType === 'elderly' ? 28 : 24} 
+                color="white" 
+              />
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[
+                styles.cameraButton,
+                userType === 'elderly' && styles.largeButton
+              ]}
+              onPress={takePhoto}
+              disabled={isLoading}
+              accessibilityLabel="Tomar foto"
+              accessibilityHint="Toca para tomar una foto y analizarla"
+            >
+              <Ionicons 
+                name="camera" 
+                size={userType === 'elderly' ? 28 : 24} 
+                color="white" 
+              />
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[
+                styles.voiceButton,
+                isListening && styles.listeningButton,
+                userType === 'elderly' && styles.largeButton
+              ]}
+              onPress={simulateVoiceInput}
+              disabled={isLoading}
+              accessibilityLabel={isListening ? "Detener grabación de voz" : "Iniciar grabación de voz"}
+              accessibilityHint={isListening ? "Toca para detener la grabación de voz" : "Toca para iniciar la grabación de voz"}
+            >
+              <Ionicons 
+                name={isListening ? "stop" : "mic"} 
+                size={userType === 'elderly' ? 28 : 24} 
+                color="white" 
+              />
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[
+                styles.sendButton,
+                userType === 'elderly' && styles.largeButton,
+                (!inputText.trim() || isLoading) && styles.disabledButton
+              ]} 
+              onPress={() => { vibrateIfEnabled(); sendMessage(); }}
+              disabled={!inputText.trim() || isLoading}
+              accessibilityLabel="Enviar mensaje"
+              accessibilityHint="Toca para enviar tu consulta"
+            >
+              <Ionicons 
+                name="send" 
+                size={userType === 'elderly' ? 28 : 24} 
+                color="white" 
+              />
+            </TouchableOpacity>
+          </>
+        )}
       </View>
       {isListening && (
         <View style={[
@@ -838,6 +924,47 @@ const styles = StyleSheet.create({
   largeListeningText: {
     fontSize: 20,
     fontWeight: 'bold',
+  },
+  contextIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#e3f2fd',
+    borderLeftWidth: 5,
+    borderLeftColor: '#1976d2',
+    padding: 12,
+    margin: 16,
+    borderRadius: 10,
+    marginBottom: 0,
+    elevation: 2,
+  },
+  contextIndicatorText: {
+    color: '#1976d2',
+    fontSize: 15,
+    flex: 1,
+  },
+  cancelButton: {
+    backgroundColor: '#f44336',
+    borderRadius: 25,
+    padding: 12,
+    minWidth: 50,
+    minHeight: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chatImage: {
+    width: 180,
+    height: 140,
+    borderRadius: 12,
+    marginBottom: 8,
+    borderWidth: 2,
+    borderColor: '#1976d2',
+    backgroundColor: '#e3f2fd',
+    alignSelf: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 4,
+    elevation: 3,
   },
 });
 

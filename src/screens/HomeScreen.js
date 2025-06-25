@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState } from 'react';
-import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, StyleSheet, Text, TouchableOpacity, View, Vibration, Modal, View as RNView, Text as RNText } from 'react-native';
 
 const HomeScreen = ({ navigation }) => {
   const [userType, setUserType] = useState(null);
@@ -12,9 +12,30 @@ const HomeScreen = ({ navigation }) => {
     detailLevel: 'medium',
     extraTime: 5
   });
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [tutorialStep, setTutorialStep] = useState(0);
+  const tutorialPages = [
+    {
+      title: '¡Bienvenido a tu Asistente de Transporte!',
+      text: 'Esta app te ayuda a planificar viajes accesibles, reportar problemas y recibir ayuda en tiempo real.'
+    },
+    {
+      title: 'Planifica tu viaje',
+      text: 'Ingresa tu origen y destino, usa autocompletado y obtén rutas en tiempo real con pasos claros.'
+    },
+    {
+      title: 'Reporta y ayuda',
+      text: 'Puedes reportar problemas de accesibilidad y ver reportes recientes de otros usuarios.'
+    },
+    {
+      title: 'Personaliza tu experiencia',
+      text: 'Configura tu perfil y preferencias de accesibilidad para una experiencia adaptada a ti.'
+    }
+  ];
 
   useEffect(() => {
     loadUserConfig();
+    checkTutorial();
   }, []);
 
   useEffect(() => {
@@ -40,12 +61,23 @@ const HomeScreen = ({ navigation }) => {
     }
   };
 
+  const checkTutorial = async () => {
+    try {
+      const seen = await AsyncStorage.getItem('tutorialSeen');
+      if (!seen) setShowTutorial(true);
+    } catch {}
+  };
+
+  const closeTutorial = async () => {
+    setShowTutorial(false);
+    await AsyncStorage.setItem('tutorialSeen', 'true');
+  };
+
   const getUserTypeDisplay = () => {
     const types = {
       'visual': 'Discapacidad Visual',
       'motor': 'Movilidad Reducida', 
-      'elderly': 'Adulto Mayor',
-      'operator': 'Operador de Transporte'
+      'elderly': 'Adulto Mayor'
     };
     return types[userType] || 'Sin configurar';
   };
@@ -55,7 +87,6 @@ const HomeScreen = ({ navigation }) => {
       'visual': '¡Hola! Tu interfaz está optimizada para comandos de voz y retroalimentación auditiva.',
       'motor': '¡Hola! Tu interfaz prioriza información sobre accesibilidad física y rutas adaptadas.',
       'elderly': '¡Hola! Tu interfaz está simplificada con botones grandes y tiempos extendidos.',
-      'operator': '¡Hola! Tienes acceso a herramientas de gestión de información de transporte.',
       null: '¡Hola! Configura tu perfil para una experiencia personalizada.'
     };
     return messages[userType];
@@ -106,13 +137,19 @@ const HomeScreen = ({ navigation }) => {
     return baseStyle;
   };
 
+  const vibrateIfEnabled = () => {
+    if (preferences.hapticFeedback) {
+      Vibration.vibrate(50);
+    }
+  };
+
   return (
     <View style={getContainerStyle()}>
       <View style={styles.header}>
         <Text style={getTitleStyle()}>Asistente de Transporte</Text>
         <TouchableOpacity 
           style={getConfigButtonStyle()}
-          onPress={() => navigation.navigate('Config')}
+          onPress={() => { vibrateIfEnabled(); navigation.navigate('Config'); }}
           accessibilityLabel="Configuración"
           accessibilityHint="Toca para abrir la configuración de accesibilidad"
         >
@@ -156,7 +193,7 @@ const HomeScreen = ({ navigation }) => {
       <View style={styles.buttonContainer}>
         <TouchableOpacity 
           style={[getButtonStyle(), styles.primaryButton]}
-          onPress={() => navigation.navigate('Chat')}
+          onPress={() => { vibrateIfEnabled(); navigation.navigate('Chat'); }}
           accessibilityLabel="Asistente inteligente"
           accessibilityHint="Toca para abrir el asistente inteligente"
         >
@@ -171,7 +208,7 @@ const HomeScreen = ({ navigation }) => {
 
         <TouchableOpacity 
           style={[getButtonStyle(), styles.secondaryButton]}
-          onPress={() => navigation.navigate('Navigation')}
+          onPress={() => { vibrateIfEnabled(); navigation.navigate('Navigation'); }}
           accessibilityLabel="Mi viaje"
           accessibilityHint="Toca para planificar tu viaje"
         >
@@ -186,7 +223,7 @@ const HomeScreen = ({ navigation }) => {
 
         <TouchableOpacity 
           style={[getButtonStyle(), styles.reportButton]}
-          onPress={() => navigation.navigate('Report')}
+          onPress={() => { vibrateIfEnabled(); navigation.navigate('Report'); }}
           accessibilityLabel="Reportar problemas"
           accessibilityHint="Toca para reportar problemas de accesibilidad"
         >
@@ -198,23 +235,6 @@ const HomeScreen = ({ navigation }) => {
             Reportar Problemas
           </Text>
         </TouchableOpacity>
-
-        {userType === 'operator' && (
-          <TouchableOpacity 
-            style={[getButtonStyle(), styles.operatorButton]}
-            onPress={() => Alert.alert('Info', 'Panel de operador en desarrollo')}
-            accessibilityLabel="Panel de operador"
-            accessibilityHint="Toca para acceder al panel de operador"
-          >
-            <Ionicons name="business" size={getIconSize()} color="white" />
-            <Text style={[
-              styles.buttonText,
-              userType === 'elderly' && styles.largeButtonText
-            ]}>
-              Panel de Operador
-            </Text>
-          </TouchableOpacity>
-        )}
       </View>
 
       {userType && (
@@ -257,6 +277,25 @@ const HomeScreen = ({ navigation }) => {
           )}
         </View>
       )}
+
+      <Modal visible={showTutorial} transparent animationType="fade">
+        <RNView style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' }}>
+          <RNView style={{ backgroundColor: 'white', borderRadius: 18, padding: 28, width: '85%', alignItems: 'center', elevation: 6 }}>
+            <RNText style={{ fontSize: 22, fontWeight: 'bold', color: '#1976d2', marginBottom: 12, textAlign: 'center' }}>{tutorialPages[tutorialStep].title}</RNText>
+            <RNText style={{ fontSize: 16, color: '#333', marginBottom: 24, textAlign: 'center' }}>{tutorialPages[tutorialStep].text}</RNText>
+            <RNView style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 10 }}>
+              {tutorialStep < tutorialPages.length - 1 && (
+                <TouchableOpacity onPress={() => setTutorialStep(tutorialStep + 1)} style={{ backgroundColor: '#4caf50', paddingVertical: 10, paddingHorizontal: 22, borderRadius: 8, marginRight: 8 }}>
+                  <RNText style={{ color: 'white', fontWeight: 'bold', fontSize: 16 }}>Siguiente</RNText>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity onPress={closeTutorial} style={{ backgroundColor: '#2196f3', paddingVertical: 10, paddingHorizontal: 22, borderRadius: 8 }}>
+                <RNText style={{ color: 'white', fontWeight: 'bold', fontSize: 16 }}>{tutorialStep < tutorialPages.length - 1 ? 'Cerrar' : '¡Listo!'}</RNText>
+              </TouchableOpacity>
+            </RNView>
+          </RNView>
+        </RNView>
+      </Modal>
     </View>
   );
 };
@@ -278,15 +317,19 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   title: {
-    fontSize: 24,
+    fontSize: 26,
     fontWeight: 'bold',
     color: '#333',
+    marginBottom: 6,
   },
   extraLargeText: {
-    fontSize: 28,
+    fontSize: 30,
   },
   whiteText: {
     color: '#fff',
+  },
+  yellowText: {
+    color: '#ffe082',
   },
   configButton: {
     padding: 10,
@@ -294,7 +337,9 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
   darkConfigButton: {
-    backgroundColor: '#333',
+    backgroundColor: '#222',
+    borderColor: '#fff',
+    borderWidth: 2,
   },
   largeConfigButton: {
     padding: 15,
@@ -303,11 +348,18 @@ const styles = StyleSheet.create({
   userTypeContainer: {
     backgroundColor: '#e3f2fd',
     padding: 15,
-    borderRadius: 10,
+    borderRadius: 12,
     marginBottom: 20,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
   },
   darkUserTypeContainer: {
-    backgroundColor: '#1a237e',
+    backgroundColor: '#111',
+    borderColor: '#fff',
+    borderWidth: 2,
   },
   userTypeText: {
     fontSize: 16,
@@ -316,16 +368,22 @@ const styles = StyleSheet.create({
   },
   welcomeContainer: {
     backgroundColor: 'white',
-    padding: 20,
-    borderRadius: 10,
+    padding: 22,
+    borderRadius: 12,
     marginBottom: 30,
     elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
   },
   darkWelcomeContainer: {
-    backgroundColor: '#1e1e1e',
+    backgroundColor: '#111',
+    borderColor: '#fff',
+    borderWidth: 2,
   },
   largeWelcomeContainer: {
-    padding: 25,
+    padding: 28,
     borderRadius: 15,
   },
   welcomeText: {
@@ -337,44 +395,55 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    gap: 0,
   },
   normalButton: {
-    backgroundColor: '#2196f3',
-    padding: 20,
-    borderRadius: 15,
+    backgroundColor: '#222',
+    borderColor: '#fff',
+    borderWidth: 2,
+    padding: 24,
+    borderRadius: 18,
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 15,
+    marginBottom: 18,
     width: '100%',
     elevation: 3,
   },
   largeButton: {
     backgroundColor: '#2196f3',
     padding: 30,
-    borderRadius: 20,
+    borderRadius: 18,
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 20,
     width: '100%',
     elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
   },
   primaryButton: {
-    backgroundColor: '#4caf50',
+    backgroundColor: '#1976d2',
+    borderColor: '#ffe082',
+    borderWidth: 2,
   },
   secondaryButton: {
-    backgroundColor: '#2196f3',
+    backgroundColor: '#333',
+    borderColor: '#fff',
+    borderWidth: 2,
   },
   reportButton: {
-    backgroundColor: '#ff5722',
-  },
-  operatorButton: {
-    backgroundColor: '#ff9800',
+    backgroundColor: '#c62828',
+    borderColor: '#ffe082',
+    borderWidth: 2,
   },
   buttonText: {
-    color: 'white',
-    fontSize: 18,
+    color: '#ffe082',
+    fontSize: 20,
     fontWeight: 'bold',
     marginLeft: 15,
+    flexShrink: 1,
   },
   largeButtonText: {
     fontSize: 22,
