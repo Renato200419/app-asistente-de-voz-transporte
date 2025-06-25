@@ -12,8 +12,13 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { ReportService } from '../services/ReportService';
+import { saveReport, getRecentReports, confirmReport } from '../services/ReportService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Speech from 'expo-speech';
+import * as Location from 'expo-location';
+import MapView, { Marker } from 'react-native-maps';
+
+const GOOGLE_MAPS_API_KEY = 'AIzaSyD9rDfG7nsMgkksUyOu57ELS8eqU-8PyJg';
 
 const ReportScreen = ({ navigation }) => {
   const [reports, setReports] = useState([]);
@@ -22,20 +27,80 @@ const ReportScreen = ({ navigation }) => {
     location: '',
     description: '',
     type: 'accessibility',
-    image: null
+    image: null,
+    coords: null,
   });
   const [userType, setUserType] = useState(null);
+  const [preferences, setPreferences] = useState({
+    voiceAlerts: true,
+    hapticFeedback: false,
+    visualNotifications: true,
+    detailLevel: 'medium',
+    extraTime: 5
+  });
+  const [visualBanner, setVisualBanner] = useState(null);
+  const [mapModalVisible, setMapModalVisible] = useState(false);
+  const [mapCoords, setMapCoords] = useState(null);
 
   useEffect(() => {
     loadUserConfig();
     loadReports();
   }, []);
 
+  const getAddressFromCoords = async (latitude, longitude) => {
+    try {
+      const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=${GOOGLE_MAPS_API_KEY}&language=es`;
+      const response = await fetch(url);
+      const data = await response.json();
+      if (data.status === 'OK' && data.results.length > 0) {
+        return data.results[0].formatted_address;
+      }
+      return `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+    } catch {
+      return `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+    }
+  };
+
+  const handleShowForm = async () => {
+    console.log('[ReportScreen] handleShowForm: Botón presionado.');
+    if (!showForm) {
+      try {
+        console.log('[ReportScreen] handleShowForm: Solicitando permisos de ubicación...');
+        let { status } = await Location.requestForegroundPermissionsAsync();
+        console.log(`[ReportScreen] handleShowForm: Estado del permiso: ${status}`);
+
+        if (status !== 'granted') {
+          Alert.alert('Permiso denegado', 'No se puede obtener la ubicación para el reporte.');
+          return;
+        }
+
+        console.log('[ReportScreen] handleShowForm: Obteniendo ubicación actual (esto puede tardar)...');
+        let location = await Location.getCurrentPositionAsync({});
+        console.log('[ReportScreen] handleShowForm: Ubicación obtenida:', location.coords);
+
+        const address = await getAddressFromCoords(location.coords.latitude, location.coords.longitude);
+        setNewReport(prev => ({
+          ...prev,
+          coords: { latitude: location.coords.latitude, longitude: location.coords.longitude },
+          location: address
+        }));
+        setMapCoords({ latitude: location.coords.latitude, longitude: location.coords.longitude });
+      } catch (e) {
+        console.error('[ReportScreen] handleShowForm: Error obteniendo ubicación:', e);
+        Alert.alert('Error de ubicación', 'No se pudo obtener la ubicación actual.');
+      }
+    }
+    console.log('[ReportScreen] handleShowForm: Cambiando visibilidad del formulario.');
+    setShowForm(!showForm);
+  };
+
   const loadUserConfig = async () => {
     try {
       const config = await AsyncStorage.getItem('userConfig');
       if (config) {
-        setUserType(JSON.parse(config).type);
+        const parsed = JSON.parse(config);
+        setUserType(parsed.type);
+        setPreferences(parsed.preferences || preferences);
       }
     } catch (error) {
       console.error('Error loading config:', error);
@@ -43,8 +108,12 @@ const ReportScreen = ({ navigation }) => {
   };
 
   const loadReports = async () => {
-    const recentReports = await ReportService.getRecentReports();
-    setReports(recentReports);
+    try {
+      const recentReports = await getRecentReports();
+      setReports(recentReports);
+    } catch (error) {
+      console.error('Error cargando reportes:', error);
+    }
   };
 
   const selectImage = async () => {
@@ -81,39 +150,53 @@ const ReportScreen = ({ navigation }) => {
   };
 
   const vibrateIfEnabled = () => {
-    if (userType) {
-      // Simula preferencia, puedes mejorar para leer de config
+    if (preferences && preferences.hapticFeedback) {
       Vibration.vibrate(50);
+    }
+  };
+
+  const speakIfEnabled = (text) => {
+    if (preferences && preferences.voiceAlerts) {
+      try { Speech.speak(text, { language: 'es' }); } catch {}
     }
   };
 
   const submitReport = async () => {
     if (!newReport.location || !newReport.description) {
       vibrateIfEnabled();
+      if (preferences.visualNotifications) setVisualBanner('Por favor completa todos los campos');
+      speakIfEnabled('Por favor completa todos los campos');
       Alert.alert('Error', 'Por favor completa todos los campos');
       return;
     }
     try {
-      await ReportService.saveReport(newReport);
+      await saveReport(newReport);
       vibrateIfEnabled();
+      if (preferences.visualNotifications) setVisualBanner('Reporte enviado correctamente');
+      speakIfEnabled('Reporte enviado correctamente');
       Alert.alert('Éxito', 'Reporte enviado correctamente');
       setShowForm(false);
       setNewReport({
         location: '',
         description: '',
         type: 'accessibility',
-        image: null
+        image: null,
+        coords: null,
       });
       loadReports();
     } catch (error) {
       vibrateIfEnabled();
+      if (preferences.visualNotifications) setVisualBanner('No se pudo enviar el reporte');
+      speakIfEnabled('No se pudo enviar el reporte');
       Alert.alert('Error', 'No se pudo enviar el reporte');
     }
   };
 
-  const confirmReport = async (reportId) => {
+  const handleConfirmReport = async (reportId) => {
     vibrateIfEnabled();
-    await ReportService.confirmReport(reportId);
+    if (preferences.visualNotifications) setVisualBanner('¡Reporte confirmado!');
+    speakIfEnabled('¡Reporte confirmado!');
+    await confirmReport(reportId);
     loadReports();
   };
 
@@ -134,8 +217,41 @@ const ReportScreen = ({ navigation }) => {
     return {};
   };
 
+  const renderVisualBanner = () => visualBanner ? (
+    <View style={{ backgroundColor: '#fff3cd', borderLeftWidth: 6, borderLeftColor: '#ff9800', padding: 12, margin: 16, borderRadius: 10, flexDirection: 'row', alignItems: 'center', elevation: 2 }}>
+      <Ionicons name="alert-circle" size={22} color="#ff9800" style={{ marginRight: 8 }} />
+      <Text style={{ color: '#8a6d3b', fontWeight: 'bold', flex: 1 }}>{visualBanner}</Text>
+      <TouchableOpacity onPress={() => setVisualBanner(null)} accessibilityLabel="Cerrar alerta visual">
+        <Ionicons name="close" size={22} color="#ff9800" />
+      </TouchableOpacity>
+    </View>
+  ) : null;
+
+  const openMapModal = async () => {
+    if (newReport.coords) {
+      setMapCoords(newReport.coords);
+    } else {
+      try {
+        let { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') return;
+        let location = await Location.getCurrentPositionAsync({});
+        setMapCoords({ latitude: location.coords.latitude, longitude: location.coords.longitude });
+      } catch {}
+    }
+    setMapModalVisible(true);
+  };
+
+  const confirmMapLocation = async () => {
+    if (mapCoords) {
+      const address = await getAddressFromCoords(mapCoords.latitude, mapCoords.longitude);
+      setNewReport(prev => ({ ...prev, coords: mapCoords, location: address }));
+    }
+    setMapModalVisible(false);
+  };
+
   return (
     <View style={getContainerStyle()}>
+      {renderVisualBanner()}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Ionicons 
@@ -149,9 +265,9 @@ const ReportScreen = ({ navigation }) => {
           getTextStyle(),
           userType === 'elderly' && styles.largeTitle
         ]}>
-          Reportes de Accesibilidad
+          Reportes
         </Text>
-        <TouchableOpacity onPress={() => setShowForm(!showForm)}>
+        <TouchableOpacity onPress={handleShowForm}>
           <Ionicons 
             name="add-circle" 
             size={userType === 'elderly' ? 28 : 24} 
@@ -160,24 +276,102 @@ const ReportScreen = ({ navigation }) => {
         </TouchableOpacity>
       </View>
 
+      {mapModalVisible && (
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 10, justifyContent: 'center', alignItems: 'center' }}>
+          <View style={{ width: '90%', height: 400, backgroundColor: '#fff', borderRadius: 15, overflow: 'hidden', elevation: 5 }}>
+            <MapView
+              style={{ flex: 1 }}
+              initialRegion={{
+                latitude: mapCoords?.latitude || -12.0464,
+                longitude: mapCoords?.longitude || -77.0428,
+                latitudeDelta: 0.005,
+                longitudeDelta: 0.005,
+              }}
+              region={mapCoords ? {
+                latitude: mapCoords.latitude,
+                longitude: mapCoords.longitude,
+                latitudeDelta: 0.005,
+                longitudeDelta: 0.005,
+              } : undefined}
+              onPress={e => setMapCoords(e.nativeEvent.coordinate)}
+            >
+              {mapCoords && (
+                <Marker
+                  coordinate={mapCoords}
+                  draggable
+                  onDragEnd={e => setMapCoords(e.nativeEvent.coordinate)}
+                />
+              )}
+            </MapView>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', padding: 15, backgroundColor: '#fafafa' }}>
+              <TouchableOpacity onPress={() => setMapModalVisible(false)} style={{ padding: 10 }}>
+                <Text style={{ color: '#f44336', fontWeight: 'bold' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={confirmMapLocation} style={{ padding: 10 }}>
+                <Text style={{ color: '#1976d2', fontWeight: 'bold' }}>Confirmar ubicación</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
+
       {showForm && (
         <View style={[
           styles.formContainer, 
           userType === 'visual' && styles.darkForm,
           userType === 'elderly' && styles.largeForm
         ]}>
-          <TextInput
-            style={[
-              styles.input, 
-              userType === 'visual' && styles.darkInput,
-              userType === 'elderly' && styles.largeInput
-            ]}
-            placeholder="Ubicación (ej: Estación Central)"
-            value={newReport.location}
-            onChangeText={(text) => setNewReport({ ...newReport, location: text })}
-            placeholderTextColor={userType === 'visual' ? '#ccc' : '#999'}
-          />
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <TextInput
+              style={[
+                styles.input, 
+                userType === 'visual' && styles.darkInput,
+                userType === 'elderly' && styles.largeInput,
+                { flex: 1 }
+              ]}
+              placeholder="Ubicación (ej: Estación Central)"
+              value={newReport.location}
+              onChangeText={(text) => setNewReport({ ...newReport, location: text })}
+              placeholderTextColor={userType === 'visual' ? '#ccc' : '#999'}
+            />
+            <TouchableOpacity onPress={openMapModal} style={{ marginLeft: 8 }}>
+              <Ionicons name="map" size={24} color="#1976d2" />
+            </TouchableOpacity>
+          </View>
           
+          <View style={{ marginBottom: 10 }}>
+            <Text style={{ marginRight: 10, fontWeight: 'bold', color: userType === 'visual' ? '#fff' : '#333', marginBottom: 6 }}>Tipo:</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ flexDirection: 'row' }}>
+              {[
+                { key: 'accesibilidad', label: 'Accesibilidad' },
+                { key: 'trafico', label: 'Tráfico/Vías' },
+                { key: 'infraestructura', label: 'Infraestructura' },
+                { key: 'seguridad', label: 'Seguridad' },
+                { key: 'limpieza', label: 'Limpieza' },
+                { key: 'otros', label: 'Otros' }
+              ].map((tipo) => (
+                <TouchableOpacity
+                  key={tipo.key}
+                  style={{
+                    backgroundColor: newReport.type === tipo.key ? '#1976d2' : '#eee',
+                    paddingVertical: 6,
+                    paddingHorizontal: 14,
+                    borderRadius: 16,
+                    marginRight: 8,
+                    borderWidth: newReport.type === tipo.key ? 2 : 1,
+                    borderColor: newReport.type === tipo.key ? '#1976d2' : '#ccc',
+                  }}
+                  onPress={() => setNewReport({ ...newReport, type: tipo.key })}
+                  accessibilityLabel={`Seleccionar tipo ${tipo.label}`}
+                >
+                  <Text style={{ color: newReport.type === tipo.key ? '#fff' : '#333', fontWeight: 'bold' }}>
+                    {tipo.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+
           <TextInput
             style={[
               styles.input, 
@@ -185,7 +379,7 @@ const ReportScreen = ({ navigation }) => {
               userType === 'visual' && styles.darkInput,
               userType === 'elderly' && styles.largeInput
             ]}
-            placeholder="Describe el problema de accesibilidad"
+            placeholder="Describe el problema"
             value={newReport.description}
             onChangeText={(text) => setNewReport({ ...newReport, description: text })}
             multiline
@@ -198,119 +392,43 @@ const ReportScreen = ({ navigation }) => {
           )}
 
           <View style={styles.imageButtons}>
-            <TouchableOpacity 
-              style={[
-                styles.imageButton,
-                userType === 'elderly' && styles.largeImageButton
-              ]} 
-              onPress={takePhoto}
-            >
-              <Ionicons 
-                name="camera" 
-                size={userType === 'elderly' ? 24 : 20} 
-                color="white" 
-              />
-              <Text style={[
-                styles.imageButtonText,
-                userType === 'elderly' && styles.largeButtonText
-              ]}>
-                Tomar Foto
-              </Text>
+            <TouchableOpacity style={styles.imageButton} onPress={selectImage}>
+              <Ionicons name="image" size={20} color="white" />
+              <Text style={styles.imageButtonText}>Galería</Text>
             </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={[
-                styles.imageButton,
-                userType === 'elderly' && styles.largeImageButton
-              ]} 
-              onPress={selectImage}
-            >
-              <Ionicons 
-                name="image" 
-                size={userType === 'elderly' ? 24 : 20} 
-                color="white" 
-              />
-              <Text style={[
-                styles.imageButtonText,
-                userType === 'elderly' && styles.largeButtonText
-              ]}>
-                Galería
-              </Text>
+            <TouchableOpacity style={styles.imageButton} onPress={takePhoto}>
+              <Ionicons name="camera" size={20} color="white" />
+              <Text style={styles.imageButtonText}>Cámara</Text>
             </TouchableOpacity>
           </View>
-
-          <TouchableOpacity 
-            style={[
-              styles.submitButton,
-              userType === 'elderly' && styles.largeSubmitButton
-            ]} 
-            onPress={submitReport}
-          >
-            <Text style={[
-              styles.submitButtonText,
-              userType === 'elderly' && styles.largeSubmitButtonText
-            ]}>
-              Enviar Reporte
-            </Text>
+          
+          <TouchableOpacity style={styles.submitButton} onPress={submitReport}>
+            <Text style={styles.submitButtonText}>Enviar Reporte</Text>
           </TouchableOpacity>
         </View>
       )}
 
-      <ScrollView style={styles.reportsList}>
+      <ScrollView style={styles.scrollView}>
         {reports.length === 0 ? (
-          <View style={{ alignItems: 'center', marginTop: 40 }}>
-            <Text style={{ color: '#888', fontSize: 18, textAlign: 'center' }}>
-              ¡No hay reportes recientes!
-            </Text>
-            <Text style={{ color: '#bbb', fontSize: 15, marginTop: 8, textAlign: 'center' }}>
-              Sé el primero en reportar un problema de accesibilidad y ayuda a otros usuarios.
-            </Text>
-          </View>
+          <Text style={[styles.emptyText, getTextStyle()]}>No hay reportes recientes.</Text>
         ) : (
-          reports.map((report) => (
-            <View key={report.id} style={[
-              styles.reportCard, 
-              userType === 'visual' && styles.darkCard,
-              userType === 'elderly' && styles.largeCard
-            ]}>
-              <View style={styles.reportHeader}>
-                <Ionicons name="location" size={20} color="#2196f3" />
-                <Text style={[
-                  styles.reportLocation, 
-                  getTextStyle()
-                ]}>
-                  {report.location}
-                </Text>
-              </View>
-              
-              <Text style={[
-                styles.reportDescription, 
-                getTextStyle()
-              ]}>
-                {report.description}
-              </Text>
-              
-              {report.image && (
-                <Image source={{ uri: report.image }} style={styles.reportImage} />
+          reports.map((report, idx) => (
+            <View key={idx} style={[styles.reportCard, userType === 'visual' && styles.darkCard, userType === 'elderly' && styles.largeCard]}>
+              <Text style={[styles.reportType, getTextStyle()]}>Tipo: {report.type === 'accessibility' ? 'Accesibilidad' : report.type}</Text>
+              <Text style={[styles.reportLocation, getTextStyle()]}>Ubicación: {report.location}</Text>
+              <Text style={[styles.reportDescription, getTextStyle()]}>Descripción: {report.description}</Text>
+              {preferences.detailLevel === 'high' && report.coords && (
+                <Text style={[styles.reportDescription, getTextStyle()]}>Coords: {report.coords.latitude.toFixed(5)}, {report.coords.longitude.toFixed(5)}</Text>
               )}
-              
-              <View style={styles.reportFooter}>
-                <Text style={[
-                  styles.reportTime,
-                  userType === 'visual' && styles.whiteTime
-                ]}>
-                  {new Date(report.timestamp).toLocaleString()}
-                </Text>
-                
-                <TouchableOpacity
-                  style={styles.confirmButton}
-                  onPress={() => confirmReport(report.id)}
-                >
-                  <Ionicons name="checkmark-circle" size={20} color="#4caf50" />
-                  <Text style={styles.confirmText}>
-                    {report.confirmations} confirmaciones
-                  </Text>
+              {report.imageUrl && (
+                <Image source={{ uri: report.imageUrl }} style={styles.reportImage} />
+              )}
+              <View style={styles.confirmContainer}>
+                <TouchableOpacity style={styles.confirmButton} onPress={() => handleConfirmReport(report.id)}>
+                  <Ionicons name="checkmark-circle" size={22} color="#4caf50" />
+                  <Text style={styles.confirmButtonText}>Confirmar</Text>
                 </TouchableOpacity>
+                <Text style={styles.confirmationsText}>{report.confirmations || 0} confirmaciones</Text>
               </View>
             </View>
           ))
@@ -324,202 +442,171 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
-    paddingTop: 50,
+    paddingTop: 50
   },
   darkTheme: {
-    backgroundColor: '#121212',
+    backgroundColor: '#121212'
+  },
+  whiteText: {
+    color: '#fff'
+  },
+  largeText: {
+    fontSize: 18
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     padding: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+    borderBottomColor: '#e0e0e0'
   },
   title: {
     fontSize: 20,
     fontWeight: 'bold',
+    marginLeft: 15,
     color: '#333',
+    flex: 1
   },
   largeTitle: {
-    fontSize: 24,
-  },
-  whiteText: {
-    color: '#fff',
-  },
-  largeText: {
-    fontSize: 18,
+    fontSize: 24
   },
   formContainer: {
-    backgroundColor: 'white',
-    margin: 20,
-    padding: 22,
-    borderRadius: 12,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0'
   },
   darkForm: {
-    backgroundColor: '#2d2d2d',
+    borderBottomColor: '#444'
   },
   largeForm: {
-    padding: 28,
-    borderRadius: 15,
+    padding: 25
   },
   input: {
+    backgroundColor: '#fff',
+    padding: 15,
+    borderRadius: 10,
+    marginBottom: 10,
     borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 15,
-    fontSize: 16,
+    borderColor: '#ddd'
   },
   darkInput: {
     backgroundColor: '#333',
-    borderColor: '#555',
     color: '#fff',
+    borderColor: '#555'
   },
   largeInput: {
-    padding: 16,
     fontSize: 18,
-    borderRadius: 12,
+    padding: 20
   },
   textArea: {
-    minHeight: 100,
-    textAlignVertical: 'top',
+    height: 100
   },
   previewImage: {
     width: '100%',
     height: 200,
-    borderRadius: 8,
-    marginBottom: 15,
+    borderRadius: 10,
+    marginBottom: 10
   },
   imageButtons: {
     flexDirection: 'row',
-    gap: 10,
-    marginBottom: 15,
+    justifyContent: 'space-around',
+    marginBottom: 10
   },
   imageButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
     backgroundColor: '#2196f3',
-    padding: 12,
-    borderRadius: 10,
-    marginHorizontal: 5,
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-  },
-  largeImageButton: {
     padding: 15,
-    borderRadius: 12,
+    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center'
   },
   imageButtonText: {
     color: 'white',
-    marginLeft: 5,
-    fontWeight: 'bold',
-    fontSize: 14,
-  },
-  largeButtonText: {
-    fontSize: 16,
+    marginLeft: 10
   },
   submitButton: {
     backgroundColor: '#4caf50',
-    padding: 17,
+    padding: 15,
     borderRadius: 10,
-    alignItems: 'center',
-    marginTop: 20,
-    marginBottom: 20,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-  },
-  largeSubmitButton: {
-    padding: 22,
-    borderRadius: 12,
+    alignItems: 'center'
   },
   submitButtonText: {
     color: 'white',
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: 16,
+    fontWeight: 'bold'
   },
-  largeSubmitButtonText: {
-    fontSize: 20,
-  },
-  reportsList: {
+  scrollView: {
     flex: 1,
-    padding: 20,
+    padding: 20
+  },
+  emptyText: {
+    textAlign: 'center',
+    marginTop: 50,
+    color: '#999',
+    fontSize: 16
   },
   reportCard: {
-    backgroundColor: 'white',
-    padding: 18,
-    borderRadius: 12,
-    marginBottom: 18,
-    elevation: 3,
+    backgroundColor: '#fff',
+    padding: 20,
+    borderRadius: 15,
+    marginBottom: 20,
+    elevation: 2,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.22,
+    shadowRadius: 2.22,
   },
   darkCard: {
-    backgroundColor: '#2d2d2d',
+    backgroundColor: '#1e1e1e',
+    borderColor: '#444',
+    borderWidth: 1
   },
   largeCard: {
-    padding: 22,
-    borderRadius: 15,
+    padding: 25
   },
-  reportHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
+  reportType: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 5,
   },
   reportLocation: {
     fontSize: 16,
     fontWeight: 'bold',
-    marginLeft: 5,
+    marginBottom: 5,
     color: '#333',
   },
   reportDescription: {
     fontSize: 14,
     color: '#666',
-    marginBottom: 10,
+    marginBottom: 15
   },
   reportImage: {
     width: '100%',
-    height: 150,
-    borderRadius: 8,
-    marginBottom: 10,
+    height: 200,
+    borderRadius: 10,
+    marginBottom: 15
   },
-  reportFooter: {
+  confirmContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  reportTime: {
-    fontSize: 12,
-    color: '#999',
-  },
-  whiteTime: {
-    color: '#ccc',
+    alignItems: 'center'
   },
   confirmButton: {
     flexDirection: 'row',
     alignItems: 'center',
+    padding: 10,
+    backgroundColor: '#e8f5e9',
+    borderRadius: 8
   },
-  confirmText: {
-    fontSize: 12,
+  confirmButtonText: {
     color: '#4caf50',
-    marginLeft: 5,
+    marginLeft: 8,
+    fontWeight: 'bold'
   },
+  confirmationsText: {
+    color: '#4caf50',
+    fontWeight: 'bold'
+  }
 });
 
 export default ReportScreen;

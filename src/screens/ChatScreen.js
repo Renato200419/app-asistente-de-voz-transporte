@@ -74,28 +74,30 @@ const ChatScreen = ({ navigation, route }) => {
   const [asistenciaContexto, setAsistenciaContexto] = useState(route?.params?.asistenciaContexto || null);
   // Estado para previsualización de imagen antes de enviar
   const [pendingImage, setPendingImage] = useState(null);
+  // Banner visual para notificaciones
+  const [visualBanner, setVisualBanner] = useState(null);
 
   useEffect(() => {
     loadUserConfig();
     // Si hay contexto de asistencia, mostrarlo como mensaje inicial y guardarlo en estado
     if (route && route.params && route.params.asistenciaContexto) {
       setAsistenciaContexto(route.params.asistenciaContexto);
-      const welcomeMessage = {
+      // Mensaje proactivo personalizado según el contexto
+      let mensajeBot = '';
+      if (route.params.asistenciaContexto.includes('planificar un viaje')) {
+        mensajeBot = '¡Hola! Veo que necesitas ayuda para planificar tu viaje en la app. Te guiaré paso a paso sobre cómo usar la interfaz: primero, ingresa el origen tocando el campo correspondiente o usa el botón de mapa; luego, ingresa el destino y pulsa "Buscar Ruta". Si tienes dudas sobre algún botón o campo, dime cuál y te explico para qué sirve.';
+      } else {
+        mensajeBot = '¡Hola! Veo que necesitas asistencia durante tu viaje. ¿Quieres que te ayude con el siguiente paso, resolver dudas sobre la ruta, o reportar algún problema?';
+      }
+      const botMessage = {
         id: Date.now(),
-        text: "¡Hola! Soy tu asistente inteligente de transporte potenciado por IA. Puedo ayudarte con:\n\n• Información sobre rutas y horarios\n• Análisis de fotos para detectar problemas de accesibilidad\n• Navegación paso a paso\n• Reportes de problemas en tiempo real\n\n¿En qué puedo ayudarte?",
+        text: mensajeBot,
         isBot: true,
         timestamp: new Date()
       };
-      const contextoMessage = {
-        id: Date.now() + 1,
-        text: route.params.asistenciaContexto,
-        isBot: false,
-        timestamp: new Date()
-      };
-      setMessages([welcomeMessage, contextoMessage]);
-      if (userType === 'visual' && preferences.voiceAlerts) {
-        Speech.speak(welcomeMessage.text, { language: 'es' });
-        Speech.speak(route.params.asistenciaContexto, { language: 'es' });
+      setMessages([botMessage]);
+      if (preferences.voiceAlerts) {
+        Speech.speak(mensajeBot, { language: 'es' });
       }
     } else {
       setAsistenciaContexto(null);
@@ -133,6 +135,7 @@ const ChatScreen = ({ navigation, route }) => {
     console.log('onSpeechError', e);
     setVoiceError(e.error?.message || 'Error de voz');
     setIsListening(false);
+    if (preferences.visualNotifications) setVisualBanner(e.error?.message || 'Error de voz');
   };
 
   const onSpeechResults = (e) => {
@@ -208,6 +211,8 @@ const ChatScreen = ({ navigation, route }) => {
   };
 
   const initializeChat = () => {
+    // Solo mostrar mensaje de bienvenida si NO hay contexto de asistencia
+    if (asistenciaContexto) return;
     const welcomeMessage = {
       id: 1,
       text: "¡Hola! Soy tu asistente inteligente de transporte potenciado por IA. Puedo ayudarte con:\n\n• Información sobre rutas y horarios\n• Análisis de fotos para detectar problemas de accesibilidad\n• Navegación paso a paso\n• Reportes de problemas en tiempo real\n\n¿En qué puedo ayudarte?",
@@ -215,17 +220,20 @@ const ChatScreen = ({ navigation, route }) => {
       timestamp: new Date()
     };
     setMessages([welcomeMessage]);
-    
-    if (userType === 'visual' && preferences.voiceAlerts) {
+    if (preferences.voiceAlerts) {
       Speech.speak(welcomeMessage.text, { language: 'es' });
     }
   };
 
   // Incluir el contexto en cada consulta a la IA
-  const callGeminiAI = async (message, imageBase64 = null) => {
+  const callGeminiAI = async (message, imageBase64 = null, detailLevel = 'medium') => {
     try {
       let contexto = asistenciaContexto ? `\n\n[Contexto del viaje]: ${asistenciaContexto}` : '';
-      const systemPrompt = `Eres un asistente especializado en transporte público y accesibilidad para personas con discapacidades. 
+      let systemPrompt = '';
+      if (asistenciaContexto && asistenciaContexto.includes('planificar un viaje')) {
+        systemPrompt = `Eres un asistente de accesibilidad para una app de transporte. SOLO debes dar instrucciones sobre cómo usar la interfaz de la app para planificar un viaje.\n\nDESCRIPCIÓN DE LA INTERFAZ:\n- Hay un campo de texto para ingresar el ORIGEN (puede ser una dirección o estación).\n- Hay un botón de mapa junto al campo de origen para seleccionar el punto en el mapa.\n- Hay un campo de texto para ingresar el DESTINO.\n- Hay un botón de mapa junto al campo de destino para seleccionar el punto en el mapa.\n- Hay un botón que dice 'Buscar Ruta' para calcular la mejor ruta.\n- Hay un botón para guardar el destino como favorito.\n- Debajo, se muestra el historial de viajes recientes.\n- Cuando se muestra una ruta, aparecen los pasos, un mapa, y botones para avanzar, retroceder o cancelar el viaje.\n- NO puedes crear rutas, ni modificar la interfaz, ni inventar funciones que la app no tiene.\n\nGuía al usuario paso a paso sobre cómo usar estos elementos. Siempre responde en español, de forma clara y empática.`;
+      } else {
+        systemPrompt = `Eres un asistente especializado en transporte público y accesibilidad para personas con discapacidades. 
       Tu conocimiento incluye:
       - Rutas de transporte público (Metro, buses, Metropolitano)
       - Horarios de servicio
@@ -239,8 +247,9 @@ const ChatScreen = ({ navigation, route }) => {
       - Obstáculos o barreras
       - Información relevante para la navegación
       
-      Siempre responde en español y de manera empática.`;
-
+      Siempre responde en español y de manera empática.
+      ${detailLevel === 'high' ? 'Da respuestas detalladas, con ejemplos y pasos claros.' : ''}`;
+      }
       let requestBody = {
         contents: [{
           parts: [{
@@ -311,6 +320,7 @@ const ChatScreen = ({ navigation, route }) => {
     if (!inputText.trim()) {
       vibrateIfEnabled();
       Alert.alert('Campo vacío', 'Por favor escribe tu mensaje antes de enviar.');
+      if (preferences.visualNotifications) setVisualBanner('Por favor escribe tu mensaje antes de enviar.');
       return;
     }
     const userMessage = {
@@ -323,7 +333,7 @@ const ChatScreen = ({ navigation, route }) => {
     setInputText('');
     setIsLoading(true);
     try {
-      const botResponseText = await callGeminiAI(inputText);
+      const botResponseText = await callGeminiAI(inputText, null, preferences.detailLevel);
       const botResponse = {
         id: Date.now() + 1,
         text: botResponseText,
@@ -331,7 +341,7 @@ const ChatScreen = ({ navigation, route }) => {
         timestamp: new Date()
       };
       setMessages(prev => [...prev, botResponse]);
-      if (userType === 'visual' && preferences.voiceAlerts) {
+      if (preferences.voiceAlerts) {
         Speech.speak(botResponseText, { language: 'es' });
       }
     } catch (error) {
@@ -343,6 +353,7 @@ const ChatScreen = ({ navigation, route }) => {
         timestamp: new Date()
       };
       setMessages(prev => [...prev, errorResponse]);
+      if (preferences.visualNotifications) setVisualBanner('Error al procesar tu mensaje.');
     } finally {
       setIsLoading(false);
     }
@@ -400,6 +411,7 @@ const ChatScreen = ({ navigation, route }) => {
     if (!inputText.trim()) {
       vibrateIfEnabled();
       Alert.alert('Campo vacío', 'Por favor escribe un mensaje de contexto para la imagen.');
+      if (preferences.visualNotifications) setVisualBanner('Por favor escribe un mensaje de contexto para la imagen.');
       return;
     }
     const imageMessage = {
@@ -414,7 +426,7 @@ const ChatScreen = ({ navigation, route }) => {
     setIsLoading(true);
     setPendingImage(null);
     try {
-      const analysis = await callGeminiAI(inputText, pendingImage.base64);
+      const analysis = await callGeminiAI(inputText, pendingImage.base64, preferences.detailLevel);
       const botResponse = {
         id: Date.now() + 1,
         text: analysis,
@@ -422,7 +434,7 @@ const ChatScreen = ({ navigation, route }) => {
         timestamp: new Date()
       };
       setMessages(prev => [...prev, botResponse]);
-      if (userType === 'visual' && preferences.voiceAlerts) {
+      if (preferences.voiceAlerts) {
         Speech.speak(analysis, { language: 'es' });
       }
     } catch (error) {
@@ -434,6 +446,7 @@ const ChatScreen = ({ navigation, route }) => {
         timestamp: new Date()
       };
       setMessages(prev => [...prev, errorResponse]);
+      if (preferences.visualNotifications) setVisualBanner('Error al analizar la imagen.');
     } finally {
       setIsLoading(false);
     }
@@ -449,7 +462,7 @@ const ChatScreen = ({ navigation, route }) => {
     }, 1500);
     
     // Dar feedback de voz
-    if (userType === 'visual' && preferences.voiceAlerts) {
+    if (preferences.voiceAlerts) {
       Speech.speak("Selecciona una opción del menú que aparecerá", { language: 'es' });
     }
   };
@@ -486,6 +499,17 @@ const ChatScreen = ({ navigation, route }) => {
     return base;
   };
 
+  // Banner visual
+  const renderVisualBanner = () => visualBanner ? (
+    <View style={{ backgroundColor: '#fff3cd', borderLeftWidth: 6, borderLeftColor: '#ff9800', padding: 12, margin: 16, borderRadius: 10, flexDirection: 'row', alignItems: 'center', elevation: 2 }}>
+      <Ionicons name="alert-circle" size={22} color="#ff9800" style={{ marginRight: 8 }} />
+      <Text style={{ color: '#8a6d3b', fontWeight: 'bold', flex: 1 }}>{visualBanner}</Text>
+      <TouchableOpacity onPress={() => setVisualBanner(null)} accessibilityLabel="Cerrar alerta visual">
+        <Ionicons name="close" size={22} color="#ff9800" />
+      </TouchableOpacity>
+    </View>
+  ) : null;
+
   return (
     <KeyboardAvoidingView 
       style={[
@@ -496,6 +520,7 @@ const ChatScreen = ({ navigation, route }) => {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 25}
     >
+      {renderVisualBanner()}
       {/* Indicador visual de contexto de asistencia */}
       {asistenciaContexto && (
         <View style={styles.contextIndicator}>
